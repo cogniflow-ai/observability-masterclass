@@ -1,0 +1,6 @@
+{
+  "app_title": "Cogniflow Orchestrator",
+  "app_version": "1.0.0",
+  "pipelines_root": "./pipelines",
+  "poll_interval_s": 1
+}

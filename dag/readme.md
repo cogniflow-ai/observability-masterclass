@@ -9,7 +9,7 @@ topology of agent stages, start to finish, no back-edges.
 | Folder | Role |
 |---|---|
 | [`cogniflow-ui/`](cogniflow-ui/) | FastAPI web UI (Observer + Configurator unified). Ships as `.exe` / `.app`. |
-| [`cogniflow-orchestrator/`](cogniflow-orchestrator/) | Python runtime that executes pipelines. Run from source. |
+| [`cogniflow-orchestrator/`](cogniflow-orchestrator/) | Launcher binary that watches `pipelines/` for `.command.json` files and runs each pipeline as a subprocess. Ships as `.exe` / `.app`. |
 
 ## Quick start
 

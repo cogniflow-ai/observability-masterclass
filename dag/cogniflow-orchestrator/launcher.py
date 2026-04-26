@@ -50,6 +50,38 @@ logging.basicConfig(
 log = logging.getLogger("cogniflow.launcher")
 
 
+# ── Frozen-bundle helpers ────────────────────────────────────────────────────
+
+def _is_frozen() -> bool:
+    """True when running inside a PyInstaller bundle (the .exe / .app)."""
+    return getattr(sys, "frozen", False)
+
+
+def _bundle_dir() -> Path:
+    """Directory holding the executable (when frozen) or this script (in dev).
+
+    Used to resolve relative paths (e.g. pipelines_root from config.json) and
+    to load the user-editable config.json that ships next to the binary.
+    """
+    if _is_frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _load_bundle_config() -> dict:
+    """Read config.json next to the executable. Empty dict if missing/malformed.
+
+    The config.json is the user's single edit point in the shipped bundle —
+    it controls pipelines_root and poll_interval_s without unpacking the .exe.
+    Env vars and CLI flags still override; this is the lowest-priority layer.
+    """
+    cfg = _bundle_dir() / "config.json"
+    try:
+        return json.loads(cfg.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 def _find_cli(start: Path) -> Optional[Path]:
@@ -97,11 +129,27 @@ class LauncherConfig:
 
     @classmethod
     def from_env_and_args(cls, args: argparse.Namespace) -> "LauncherConfig":
-        root = Path(
-            args.root or os.environ.get("PIPELINES_ROOT", ".")
+        cfg = _load_bundle_config()
+
+        # Layer: CLI flag > env var > config.json > default
+        root_raw = (
+            args.root
+            or os.environ.get("PIPELINES_ROOT")
+            or cfg.get("pipelines_root")
+            or "."
         )
+        root = Path(root_raw)
+        # Resolve a relative pipelines_root against the bundle dir when frozen,
+        # so a student can edit config.json with "./pipelines" and have it
+        # land next to the .exe rather than the current working directory.
+        if _is_frozen() and not root.is_absolute():
+            root = (_bundle_dir() / root).resolve()
+
         poll = float(
-            args.poll or os.environ.get("LAUNCHER_POLL_S", "1")
+            args.poll
+            or os.environ.get("LAUNCHER_POLL_S")
+            or cfg.get("poll_interval_s")
+            or 1
         )
         cli  = Path(args.cli) if args.cli else None
         py   = os.environ.get("COGNIFLOW_PYTHON", sys.executable)
@@ -112,6 +160,10 @@ class LauncherConfig:
             raise SystemExit(
                 f"PIPELINES_ROOT does not exist: {self.pipelines_root}"
             )
+        # In a frozen bundle we self-invoke via --cli-mode instead of spawning
+        # a separate cli.py file, so the cli_path check doesn't apply.
+        if _is_frozen():
+            return
         if self.cli_path is None or not self.cli_path.exists():
             raise SystemExit(
                 f"Cannot find cli.py. Set COGNIFLOW_CLI or pass --cli. "
@@ -271,8 +323,19 @@ class ProcessTracker:
         pipeline_dir: Path,
         config: LauncherConfig,
     ) -> subprocess.Popen:
-        """Spawn cli.py run <pipeline_dir> as a detached subprocess."""
-        cmd = [config.python_exe, str(config.cli_path), "run", str(pipeline_dir)]
+        """Spawn cli.py run <pipeline_dir> as a detached subprocess.
+
+        In a frozen bundle there is no Python interpreter or cli.py file on
+        disk, so we self-invoke the launcher executable with --cli-mode and
+        delegate to cli.main() inside that child process. In dev mode we
+        still spawn `python cli.py run ...` against the real script.
+        """
+        if _is_frozen():
+            cmd = [sys.executable, "--cli-mode", "run", str(pipeline_dir)]
+            cwd = str(_bundle_dir())
+        else:
+            cmd = [config.python_exe, str(config.cli_path), "run", str(pipeline_dir)]
+            cwd = str(config.cli_path.parent)
         log.info("Starting pipeline: %s", pipeline_dir.name)
         log.debug("Command: %s", " ".join(cmd))
 
@@ -282,7 +345,7 @@ class ProcessTracker:
         # PIPE will deadlock once the OS pipe buffer fills (~64KB Linux, ~4KB Win).
         proc = subprocess.Popen(
             cmd,
-            cwd=str(config.cli_path.parent),
+            cwd=cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             # On Windows, create a new process group so CTRL+C doesn't kill children
@@ -496,6 +559,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # CLI-mode delegation. When the frozen launcher.exe is invoked with
+    # --cli-mode as the first argument, hand control to cli.main(). This is
+    # how the launcher spawns "cli.py run <pipeline>" inside a bundle that
+    # has no separate Python interpreter or cli.py on disk — see
+    # ProcessTracker.start.
+    if len(sys.argv) > 1 and sys.argv[1] == "--cli-mode":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        from cli import main as cli_main
+        sys.exit(cli_main())
+
     parser = _build_parser()
     args   = parser.parse_args()
 

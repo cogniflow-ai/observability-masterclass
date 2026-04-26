@@ -39,20 +39,26 @@ launch.
 
 ## Distribution
 
-Pre-built binaries for the UI are published on the
-[Releases page](../../releases/latest):
+Pre-built binaries are published on the
+[Releases page](../../releases/latest). Each DAG release ships **four**
+zips — UI and orchestrator for both platforms:
 
 * `Cogniflow-UI-DAG-Windows.zip`
 * `Cogniflow-UI-DAG-macOS.zip`
-* (Cyclic builds coming once `cyclic/cogniflow-ui/` exists.)
+* `Cogniflow-Orchestrator-DAG-Windows.zip`
+* `Cogniflow-Orchestrator-DAG-macOS.zip`
+
+(Cyclic builds coming once `cyclic/cogniflow-ui/` exists.)
 
 CI builds are triggered by tag pushes:
 
-* `dag-vX.Y.Z` → builds the DAG UI for both platforms
-* `cyclic-vX.Y.Z` → builds the cyclic UI for both platforms (once it exists)
+* `dag-vX.Y.Z` → builds DAG UI **and** DAG orchestrator for both platforms (4 artifacts)
+* `cyclic-vX.Y.Z` → builds the cyclic flavor for both platforms (once those workflows exist)
 
 See [`dag/cogniflow-ui/github.md`](dag/cogniflow-ui/github.md) for the
-full release operations manual.
+full release operations manual, and
+[`dag/cogniflow-orchestrator/building.md`](dag/cogniflow-orchestrator/building.md)
+for orchestrator-specific packaging notes.
 
 ## Repo layout
 
@@ -60,8 +66,10 @@ full release operations manual.
 observability-masterclass/
 ├── readme.md                             <- this file
 ├── .github/workflows/
-│   ├── build-dag.yml                     <- builds dag/cogniflow-ui for Windows + macOS
-│   └── build-cyclic.yml                  <- builds cyclic/cogniflow-ui (placeholder until UI exists)
+│   ├── build-dag-windows.yml             <- builds dag/cogniflow-ui for Windows
+│   ├── build-dag-macos.yml               <- builds dag/cogniflow-ui for macOS
+│   ├── build-dag-orch-windows.yml        <- builds dag/cogniflow-orchestrator for Windows
+│   └── build-dag-orch-macos.yml          <- builds dag/cogniflow-orchestrator for macOS
 ├── dag/
 │   ├── readme.md
 │   ├── cogniflow-ui/

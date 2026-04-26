@@ -332,3 +332,102 @@ the Specialize action. No code change required.
 | `[seed] skipped` printed every launch even after a version bump | `app_version` was bumped only in one place. The top-level `config.json` is the single source of truth. | Edit `dag/cogniflow-ui/config.json` (not the observer or configurator one). |
 | Specialize button missing | `claude` CLI not found on PATH and `claude_bin` is empty in `configurator/config.json`. | Install Claude CLI and either add it to PATH or set `claude_bin` explicitly. |
 | 404 on `/pipelines/<name>/history` | `versioning: false` in `observer/config.json`. | Set it to `true` and restart. |
+
+---
+
+## 5. Testing a release
+
+Two paths — same artifact, different surface area. Run both whenever you
+ship a new tag.
+
+### 5.1 Developer path (verifies source build + seeding + both subsystems)
+
+```bash
+# Fresh clone — outside your normal working tree, so you don't pick up
+# stale venvs or leftover state.
+cd /tmp     # or any scratch dir
+git clone https://github.com/cogniflow-ai/observability-masterclass.git test-clone
+cd test-clone/dag/cogniflow-ui
+
+python -m venv venv
+venv/Scripts/python -m pip install -r requirements.txt
+venv/Scripts/python -m uvicorn app:app --reload
+```
+
+Then in a browser at http://127.0.0.1:8000:
+
+| What to check | Expected | If broken |
+|---|---|---|
+| Home page lists 5 pipelines | Writer&Critic, Code-Review-Board, Newspaper, Software-Factory, Universe-Origins | Seeding failed — check console for `[seed]` line |
+| Console prints `[seed] copied 5 pipelines from seed_pipelines/ → ../../cogniflow-orchestrator/pipelines/` (or similar) | Seeder ran | Path mismatch — check the observer/configurator config paths |
+| `dag/cogniflow-orchestrator/pipelines/` now contains those 5 folders | Seed actually wrote to disk | Permissions or path resolution issue |
+| Click any pipeline → board view loads | Observer mounted at `/pipelines/...` | Observer routes broken |
+| Top nav → Configurator → grid loads | Configurator mounted at `/configurator` | Configurator routes broken |
+| In Configurator, open a pipeline → graph renders | DAG SVG generation works | `dag_svg.py` issue |
+
+**Bonus** — actually execute one of the seeded pipelines:
+
+```bash
+cd ../cogniflow-orchestrator
+python -m venv venv
+venv/Scripts/python -m pip install -r requirements.txt
+venv/Scripts/python cli.py run pipelines/01-writer-critic
+```
+
+Requires `claude` on PATH (or set `CLAUDE_BIN`).
+
+### 5.2 Non-technical student path (verifies the shipped binary)
+
+The path students will actually take. **Test on a clean machine if possible**
+(or at minimum a non-developer Windows account) — your dev machine has Python
+on PATH, claude.exe wherever, etc., which masks issues a real student will
+hit.
+
+**Windows:**
+
+1. Open https://github.com/cogniflow-ai/observability-masterclass/releases/latest in a browser.
+2. Click `Cogniflow-UI-DAG-Windows.zip` → Save.
+3. Right-click the zip → Extract All → pick a folder.
+4. Inside, you'll see:
+   ```
+   cogniflow-ui.exe
+   config.json
+   _internal/
+   ```
+5. **Edit `config.json`** if needed. The default
+   `"orchestrator_root": "../cogniflow-orchestrator"` assumes a sibling
+   orchestrator folder. If they only have the UI, point it at any folder
+   where pipelines should live (a relative path like `./pipelines-data`
+   works — the UI will create the `pipelines/` subfolder on first launch).
+6. Double-click `cogniflow-ui.exe`. A console window opens (don't close
+   it — that stops the server). Default browser opens at
+   http://127.0.0.1:8000.
+7. Repeat the **browser checks** from §5.1.
+
+**macOS:**
+
+1. Same release URL → click `Cogniflow-UI-DAG-macOS.zip` → unzip.
+2. `Cogniflow UI.app` appears.
+3. **First launch only:** double-click → Gatekeeper rejects with
+   "developer cannot be verified". Right-click → **Open** → click **Open**
+   in the second dialog. After that, normal double-click works.
+4. Same browser checks.
+
+### 5.3 The orchestrator-folder gotcha
+
+Today's release ships only the UI zip. A student who downloads it has
+no `cogniflow-orchestrator/` folder to seed into unless they also
+clone the repo or grab the orchestrator separately.
+
+Two ways to handle:
+
+* **(a) Document it.** Tell students to either clone the repo or
+  download a separate orchestrator zip. Simplest, but requires extra
+  steps from them.
+* **(b) Make the UI auto-create an empty `pipelines/` folder** if
+  `orchestrator_root` doesn't exist. Best UX — UI just works on first
+  launch with no setup. Check what `seeding.py` does today before
+  deciding.
+
+This is the single most likely issue a fresh student will report — test
+both options before relying on either.
