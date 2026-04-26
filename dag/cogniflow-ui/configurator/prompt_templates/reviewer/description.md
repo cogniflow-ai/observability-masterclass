@@ -1,0 +1,1 @@
+A critic agent. Reads the output of one or more upstream agents and returns a structured critique — what works, what is weak, what is missing, what should change — against explicit criteria. Reviewers are consumed either by a synthesizer that merges feedback or by a subsequent revision pass that rewrites the reviewed artefact.

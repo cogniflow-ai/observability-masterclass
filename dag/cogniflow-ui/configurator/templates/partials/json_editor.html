@@ -1,0 +1,54 @@
+{% if save_ok is defined and save_ok %}
+<div class="success-banner">✓ pipeline.json saved.</div>
+{% endif %}
+{% if save_error is defined %}
+<div class="error-banner">{{ save_error }}</div>
+{% endif %}
+
+<div class="json-editor-wrap">
+  <div class="json-toolbar">
+    <span class="json-title">pipeline.json</span>
+    <a href="/pipeline/{{ pipeline_name }}/versions/pipeline.json"
+       hx-get="/pipeline/{{ pipeline_name }}/versions/pipeline.json"
+       hx-target="#right-panel-content"
+       hx-swap="innerHTML"
+       class="btn-ghost btn-sm">History</a>
+  </div>
+
+  <form hx-post="/pipeline/{{ pipeline_name }}/graph/json"
+        hx-target=".json-editor-wrap"
+        hx-swap="outerHTML">
+    <div class="hv-editor-wrap" data-logical="pipeline.json">
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="json_content" class="hv-editor"
+                spellcheck="false">{{ json_content }}</textarea>
+    </div>
+    <div class="json-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <span class="hv-validity" data-validity></span>
+      <button type="button" class="btn-ghost btn-sm" data-format-json>⤵ Format</button>
+      <button type="submit" class="btn-primary">Save JSON</button>
+    </div>
+  </form>
+
+  {% if validation is defined and validation.errors %}
+  <div class="validation-inline">
+    <strong>Errors:</strong>
+    <ul>
+    {% for e in validation.errors %}
+      <li class="val-error">{{ e.field }}: {{ e.message }}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if validation is defined and validation.warnings %}
+  <div class="validation-inline warn">
+    <strong>Warnings:</strong>
+    <ul>
+    {% for w in validation.warnings %}
+      <li class="val-warn">{{ w.field }}: {{ w.message }}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>

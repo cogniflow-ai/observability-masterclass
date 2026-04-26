@@ -1,0 +1,95 @@
+{% if save_ok is defined and save_ok %}<div class="success-banner">✓ Agent metadata saved.</div>{% endif %}
+{% if error is defined and error %}<div class="error-banner">{{ error }}</div>{% endif %}
+{% if specialize_ok is defined and specialize_ok %}
+<div class="success-banner">✓ Prompts re-specialized. Previous content is in version history.</div>
+{% endif %}
+{% if specialize_error is defined and specialize_error %}
+  {% set se = specialize_error %}
+  {% include "partials/specialize_error.html" %}
+{% endif %}
+
+<div class="detail-panel">
+  <div class="detail-header">
+    <h3><code>{{ agent_id }}</code></h3>
+    <a href="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/01_system.md"
+       hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/01_system.md"
+       hx-target="#right-panel-content" hx-swap="innerHTML"
+       class="btn-ghost btn-sm">System Prompt</a>
+    <a href="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/02_prompt.md"
+       hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/02_prompt.md"
+       hx-target="#right-panel-content" hx-swap="innerHTML"
+       class="btn-ghost btn-sm">Task Prompt</a>
+  </div>
+
+  <form hx-post="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}"
+        hx-target="#right-panel-content" hx-swap="innerHTML">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Display name</label>
+        <input name="agent_name" value="{{ (agent or {}).get('name', agent_id) }}"/>
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select name="agent_type">
+          {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+          <option value="{{ t }}" {% if (agent or {}).get('type') == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <input name="category" value="{{ (agent or {}).get('category', '') }}"/>
+      </div>
+      <div class="form-group">
+        <label>Timeout (s)</label>
+        <input name="timeout_s" type="number" value="{{ (agent or {}).get('timeout_s', '') }}" min="1"/>
+      </div>
+      <div class="form-group full">
+        <label>Description</label>
+        <input name="description" value="{{ (agent or {}).get('description', '') }}"/>
+      </div>
+      <div class="form-group full">
+        <label>Labels (comma-separated)</label>
+        <input name="labels" value="{{ (agent or {}).get('labels', []) | join(', ') }}"/>
+        {% if labels_data.get('catalogue') %}
+        <small>Available: {{ labels_data.catalogue | join(', ') }}</small>
+        {% endif %}
+      </div>
+      <div class="form-group">
+        <label>Require approval</label>
+        <select name="require_approval">
+          <option value="false" {% if not (agent or {}).get('require_approval') %}selected{% endif %}>No</option>
+          <option value="true"  {% if (agent or {}).get('require_approval') %}selected{% endif %}>Yes</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Budget strategy</label>
+        <select name="budget_strategy">
+          <option value="">— inherit pipeline default —</option>
+          {% for bs in ['hard_fail','auto_summarise','select_top_n'] %}
+          <option value="{{ bs }}" {% if (agent or {}).get('budget_strategy') == bs %}selected{% endif %}>{{ bs }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary btn-sm">Save Metadata</button>
+      <a href="/pipeline/{{ pipeline_name }}/versions/agents/{{ agent_id }}/01_system.md"
+         hx-get="/pipeline/{{ pipeline_name }}/versions/agents/{{ agent_id }}/01_system.md"
+         hx-target="#right-panel-content" hx-swap="innerHTML"
+         class="btn-ghost btn-sm">Version History</a>
+    </div>
+  </form>
+
+  <div class="specialize-actions">
+    <form class="specialize-form"
+          data-agent-id="{{ agent_id }}"
+          hx-post="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}/specialize"
+          hx-target="#right-panel-content" hx-swap="innerHTML">
+      <button type="submit" class="btn-primary btn-sm specialize-btn">
+        ⚙ Generate Tailored Prompts
+      </button>
+    </form>
+    <small class="muted">Runs the meta-prompt pipeline using this agent's type, description, and the type's current templates. Previous content is preserved in version history. May take up to a few minutes — do not close the page.</small>
+  </div>
+</div>

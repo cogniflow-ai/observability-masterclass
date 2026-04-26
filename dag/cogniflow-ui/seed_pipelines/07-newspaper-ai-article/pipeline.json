@@ -1,0 +1,70 @@
+{
+  "id": "007-newspaper-ai-article",
+  "name": "Newspaper example for the state of AI tool in 2026",
+  "description": "Research the current state of AI coding tools, synthesise findings, write an article, fact-check it, and produce a polished final draft.",
+  "agents": [
+    {
+      "id": "001_researcher_tools",
+      "depends_on": [],
+      "description": "Researches AI coding tool landscape (Copilot, Cursor, etc.)"
+    },
+    {
+      "id": "002_researcher_agentic",
+      "depends_on": [],
+      "description": "Researches agentic coding patterns and multi-agent dev workflows"
+    },
+    {
+      "id": "003_researcher_enterprise",
+      "depends_on": [],
+      "description": "Researches enterprise adoption patterns, ROI, and risks"
+    },
+    {
+      "id": "004_synthesizer",
+      "depends_on": [
+        "001_researcher_tools",
+        "002_researcher_agentic",
+        "003_researcher_enterprise"
+      ],
+      "description": "Fan-in: synthesises all three research streams into a unified briefing",
+      "name": "004_synthesizer",
+      "type": "synthesizer",
+      "category": "",
+      "require_approval": false
+    },
+    {
+      "id": "005_writer",
+      "depends_on": [
+        "004_synthesizer"
+      ],
+      "description": "Writes a 600-word article from the synthesised briefing"
+    },
+    {
+      "id": "006_fact_checker",
+      "depends_on": [
+        "004_synthesizer"
+      ],
+      "description": "Independently fact-checks the synthesised briefing for accuracy",
+      "name": "006_fact_checker",
+      "type": "classifier",
+      "category": "",
+      "require_approval": false
+    },
+    {
+      "id": "007_editor",
+      "depends_on": [
+        "005_writer",
+        "006_fact_checker"
+      ],
+      "description": "Fan-in: merges the draft article with fact-check notes into a final polished piece",
+      "name": "007_editor",
+      "type": "summarizer",
+      "category": "",
+      "require_approval": false
+    }
+  ],
+  "updated_at": "2026-04-23T17:44:13.895953+00:00",
+  "graph_orientation": "vertical",
+  "graph_mode": "dag",
+  "validate_taglines": true,
+  "category": ""
+}

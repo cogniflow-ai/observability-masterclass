@@ -1,0 +1,11 @@
+{
+  "orchestrator_root": "../../cogniflow-orchestrator",
+  "poll_interval_ms": 2000,
+  "model_context_limit": 180000,
+  "event_tail_lines": 50,
+  "app_title": "Cogniflow Observer",
+  "approver": "operator",
+  "host": "127.0.0.1",
+  "port": 8000,
+  "versioning": true
+}

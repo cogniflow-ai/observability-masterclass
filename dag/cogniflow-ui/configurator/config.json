@@ -1,0 +1,14 @@
+{
+  "pipelines_root": "../../cogniflow-orchestrator/pipelines",
+  "cfg_port": 8001,
+  "cfg_max_versions": 50,
+  "cfg_readonly": false,
+  "model_context_limit": 180000,
+  "cfg_trash_dir": "",
+  "app_title": "Cogniflow Configurator",
+  "prompt_templates_dir": "",
+  "claude_bin": "",
+  "meta_prompt_timeout_s": 300,
+  "default_taglines_system": ["role", "responsibilities", "guardrails"],
+  "default_taglines_task":   ["description", "goals", "context", "input", "output", "format", "guardrails"]
+}

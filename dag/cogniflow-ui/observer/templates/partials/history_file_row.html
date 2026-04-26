@@ -1,0 +1,9 @@
+{# Single file row in the left tree. Expects `f` and `name` in scope. #}
+<button class="hv-file-row {% if not f.editable %}hv-file-ro{% endif %}"
+        data-logical="{{ f.logical }}"
+        title="{{ f.logical }}"
+        onclick="loadHistoryFile('{{ name }}', '{{ f.logical }}', this)">
+  <span class="hv-file-icon">{{ f.icon }}</span>
+  <span class="hv-file-name">{{ f.label }}</span>
+  <span class="hv-file-versions" title="{{ f.version_count }} version(s) available">{{ f.version_count }}</span>
+</button>

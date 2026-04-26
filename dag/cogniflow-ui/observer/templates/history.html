@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}{{ pl_name }} — History — {{ title }}{% endblock %}
+
+{% block navbar_extra %}
+<div class="navbar-pipeline">{{ pl_name }}</div>
+{% endblock %}
+
+{% block content %}
+<div class="container hv-container">
+
+  <!-- Page header -->
+  <header class="hv-header">
+    <div class="hv-header-left">
+      <a class="btn btn-sm" href="/pipelines/{{ name }}">← Board</a>
+      <a class="btn btn-sm" href="/">All pipelines</a>
+    </div>
+    <div class="hv-header-main">
+      <h1 class="hv-title">{{ pl_name }}</h1>
+      <div class="hv-sub">History &amp; versions</div>
+    </div>
+    <div class="hv-header-stats">
+      <div class="hv-stat"><b>{{ runs|length }}</b><span>runs</span></div>
+      <div class="hv-stat"><b>{{ tree.agents|length }}</b><span>agents</span></div>
+    </div>
+  </header>
+
+  <div class="hv-grid">
+
+    <!-- Left: file tree -->
+    <aside class="hv-pane hv-files">
+      <div class="hv-pane-header">
+        <span class="hv-pane-title">Files</span>
+        <span class="hv-pane-hint">click to open</span>
+      </div>
+
+      {% if tree.pipeline %}
+      <details class="hv-group" open>
+        <summary class="hv-group-summary">
+          <span class="hv-caret">▾</span>
+          <span class="hv-group-label">Pipeline</span>
+          <span class="hv-group-count">{{ tree.pipeline|length }}</span>
+        </summary>
+        <div class="hv-group-body">
+          {% for f in tree.pipeline %}
+            {% include "partials/history_file_row.html" %}
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+      {% for a in tree.agents %}
+      <details class="hv-group" {% if loop.first %}open{% endif %}>
+        <summary class="hv-group-summary">
+          <span class="hv-caret">▾</span>
+          <span class="hv-group-label">{{ a.id }}</span>
+          <span class="hv-group-count">{{ a.files|length }}</span>
+        </summary>
+        <div class="hv-group-body">
+          {% if a.config_count %}<div class="hv-group-divider">Agent configuration</div>{% endif %}
+          {% for f in a.files if f.kind != "generated" %}
+            {% include "partials/history_file_row.html" %}
+          {% endfor %}
+          {% if a.run_count %}<div class="hv-group-divider">Run artifacts</div>{% endif %}
+          {% for f in a.files if f.kind == "generated" %}
+            {% include "partials/history_file_row.html" %}
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+
+      {% if not tree.pipeline and not tree.agents %}
+      <div class="hv-empty">
+        <div class="hv-empty-icon">🗂</div>
+        <div>No files yet</div>
+        <div class="hv-empty-sub">Run the pipeline at least once to populate history.</div>
+      </div>
+      {% endif %}
+    </aside>
+
+    <!-- Middle: file viewer / editor / diff -->
+    <section class="hv-pane hv-viewer">
+      <div id="history-file-container">
+        <div class="hv-placeholder">
+          <div class="hv-placeholder-icon">📄</div>
+          <div class="hv-placeholder-title">Pick a file to explore</div>
+          <p class="hv-placeholder-body">
+            Choose any file from the tree on the left. You'll be able to:
+          </p>
+          <ul class="hv-placeholder-list">
+            <li>View the file at the <strong>current</strong> version or in any past run.</li>
+            <li>Edit the current version for editable files (prompts, system, inputs, <code>pipeline.json</code>).</li>
+            <li>Compare any two versions and see a line-by-line diff.</li>
+          </ul>
+        </div>
+      </div>
+      <div id="history-diff-container"></div>
+    </section>
+
+    <!-- Right: runs / annotations -->
+    <aside class="hv-pane hv-runs">
+      <div class="hv-pane-header">
+        <span class="hv-pane-title">Runs</span>
+        <span class="hv-pane-hint">label &amp; notes</span>
+      </div>
+      <div id="history-runs-container">
+        {% include "partials/history_runs.html" %}
+      </div>
+    </aside>
+
+  </div>
+</div>
+{% endblock %}

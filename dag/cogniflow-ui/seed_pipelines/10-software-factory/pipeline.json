@@ -1,0 +1,46 @@
+{
+  "id": "10-software-factory",
+  "name": "Software Factory",
+  "description": "Spec â†’ Architect â†’ Developer â†’ Tester â†’ Documenter. Developer, tester, and documenter run with --dangerously-skip-permissions and cwd=todo/ so Claude writes files directly into the todo/ folder.",
+  "agents": [
+    {
+      "id": "001_spec",
+      "depends_on": [],
+      "description": "Writes the technical specification."
+    },
+    {
+      "id": "002_architect",
+      "depends_on": [
+        "001_spec"
+      ],
+      "description": "Designs the module structure and function signatures."
+    },
+    {
+      "id": "003_developer",
+      "depends_on": [
+        "002_architect"
+      ],
+      "description": "Implements the app; writes todo.py directly to todo/."
+    },
+    {
+      "id": "004_tester",
+      "depends_on": [
+        "003_developer"
+      ],
+      "description": "Writes the pytest suite directly to todo/."
+    },
+    {
+      "id": "005_documenter",
+      "depends_on": [
+        "003_developer"
+      ],
+      "description": "Writes README.md directly to todo/."
+    }
+  ],
+  "graph_mode": "dag",
+  "graph_orientation": "horizontal",
+  "validate_taglines": false,
+  "validated_taglines": "",
+  "category": "",
+  "updated_at": "2026-04-25T13:48:37.545096+00:00"
+}

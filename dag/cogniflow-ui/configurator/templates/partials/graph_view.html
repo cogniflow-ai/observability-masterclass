@@ -1,0 +1,54 @@
+{% if svg is defined %}
+{% set orient = orientation|default('vertical') %}
+<div id="graph-view-wrap">
+  <div class="graph-view-toolbar">
+    <div class="graph-view-tools-left">
+      <a href="/pipeline/{{ pipeline_name }}/graph/svg" class="btn-ghost btn-sm" download>⬇ Download SVG</a>
+      <a href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=view" class="btn-ghost btn-sm">↺ Refresh</a>
+    </div>
+    <div class="orient-toggle" role="group" aria-label="Graph orientation">
+      <form hx-post="/pipeline/{{ pipeline_name }}/graph/orientation"
+            hx-target="#graph-view-wrap" hx-swap="outerHTML">
+        <button type="submit" name="orient" value="horizontal"
+                class="orient-btn{% if orient == 'horizontal' %} active{% endif %}"
+                title="Horizontal: layers flow left → right">↔ Horizontal</button><!--
+     --><button type="submit" name="orient" value="vertical"
+                class="orient-btn{% if orient == 'vertical' %} active{% endif %}"
+                title="Vertical: layers stack top → bottom — compacter for deep pipelines">↕ Vertical</button>
+      </form>
+    </div>
+  </div>
+
+  {% if validation.errors %}
+  {% set n_err = validation.errors | length %}
+  <div class="warn-banner val-banner">
+    <div class="val-banner-head">
+      ⚠ <strong>Pipeline has {{ n_err }} validation error{{ 's' if n_err != 1 else '' }}</strong>
+      — the graph may not reflect a valid pipeline.
+      <a href="/pipeline/{{ pipeline_name }}?tab=validate" class="val-link">See all in Validate tab →</a>
+    </div>
+    <ul class="val-banner-list">
+      {% for e in validation.errors[:4] %}
+      {% set parts = e.field.split('/') %}
+      <li>
+        <code class="val-banner-field">{{ e.field }}</code> —
+        <span class="val-banner-msg">{{ e.message }}</span>
+        {% if e.section == 'prompts' and parts | length == 3 and parts[0] == 'agents' %}
+          <a class="val-link" href="#"
+             hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ parts[1] }}/{{ parts[2] }}"
+             hx-target="#right-panel-content" hx-swap="innerHTML">Open file →</a>
+        {% elif e.section == 'agents' or e.section == 'graph' %}
+          <a class="val-link" href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=topology">Fix in Topology →</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+      {% if n_err > 4 %}
+      <li class="muted">… and {{ n_err - 4 }} more</li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="svg-container">{{ svg | safe }}</div>
+</div>
+{% endif %}

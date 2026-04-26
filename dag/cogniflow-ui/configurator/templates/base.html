@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Cogniflow Configurator{% endblock %}</title>
+  <link rel="stylesheet" href="/static/configurator/style.css?v=3"/>
+  <script>
+    // Apply sidebar/right-panel collapse state before first paint to avoid flash.
+    (function () {
+      try {
+        var root = document.documentElement;
+        if (localStorage.getItem('cogniflow-sidebar-collapsed') === '1') {
+          root.classList.add('sidebar-collapsed');
+        }
+        if (localStorage.getItem('cogniflow-right-collapsed') === '1') {
+          root.classList.add('right-collapsed');
+        }
+      } catch (e) { /* storage unavailable — keep defaults */ }
+    })();
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="header-left">
+    <span class="logo-mark">⬡</span>
+    <span class="logo-text">COGNIFLOW</span>
+    <span class="logo-sub">Configurator</span>
+    <a href="/configurator" class="btn-ghost header-nav-btn">← Pipelines</a>
+    <a href="/" class="btn-ghost header-nav-btn" title="Back to Observer home">⌂ Observer</a>
+  </div>
+  <div class="header-right">
+    {% block header_extra %}{% endblock %}
+    <button class="btn-ghost header-nav-btn" onclick="toggleTheme()" title="Toggle dark mode">◑</button>
+  </div>
+</header>
+
+<div id="specialize-top-banner" class="specialize-top-banner" hidden>
+  <span class="pulse-dot">●</span>
+  <span>Specializing prompts for <strong id="specialize-banner-agent"></strong>…</span>
+  <span class="specialize-banner-timer" id="specialize-banner-timer">0:00</span>
+  <span class="specialize-banner-hint">Please wait — do not close or reload this page.</span>
+</div>
+
+<div class="app-layout">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <button class="panel-toggle sidebar-toggle" type="button"
+            onclick="togglePanel('sidebar')"
+            title="Collapse / expand the pipelines sidebar">
+      <span class="panel-toggle-collapsed">›</span>
+      <span class="panel-toggle-expanded">‹</span>
+    </button>
+    <div class="sidebar-contents">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Pipelines</div>
+        {% block sidebar_pipelines %}{% endblock %}
+      </div>
+      <div class="sidebar-bottom">
+        <a href="/templates" class="sidebar-link">📋 Pipeline Templates</a>
+        <a href="/prompt-templates" class="sidebar-link">🧩 Prompt Templates</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Right panel -->
+  <aside class="right-panel" id="right-panel">
+    <button class="panel-toggle right-toggle" type="button"
+            onclick="togglePanel('right')"
+            title="Collapse / expand the details panel">
+      <span class="panel-toggle-collapsed">‹</span>
+      <span class="panel-toggle-expanded">›</span>
+    </button>
+    <div class="right-panel-contents">
+      {% block right_panel %}
+      <div class="panel-placeholder">
+        <p>Select an agent or file to see details here.</p>
+      </div>
+      {% endblock %}
+    </div>
+  </aside>
+</div>
+
+<script src="/static/configurator/app.js?v=2"></script>
+</body>
+</html>

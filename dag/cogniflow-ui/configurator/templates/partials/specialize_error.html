@@ -1,0 +1,15 @@
+{# Renders a specialization failure. Expects `se` = {stage, message, raw_response}. #}
+<div class="specialize-error">
+  <div class="specialize-error-head">
+    <strong>⚠ Prompt specialization failed</strong>
+    <span class="specialize-stage">stage: {{ se.stage }}</span>
+  </div>
+  <p class="specialize-message">{{ se.message }}</p>
+  <p class="muted">The agent was created with verbatim copies of the type's templates. You can edit the prompts manually, fix the inputs and re-run, or edit the meta prompts themselves.</p>
+  {% if se.raw_response %}
+  <details class="specialize-raw">
+    <summary>Show raw model response ({{ se.raw_response | length }} chars)</summary>
+    <pre class="specialize-raw-body">{{ se.raw_response }}</pre>
+  </details>
+  {% endif %}
+</div>

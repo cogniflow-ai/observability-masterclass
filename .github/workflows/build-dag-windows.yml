@@ -1,0 +1,62 @@
+name: Build DAG UI - Windows
+
+# Companion to build-dag-macos.yml. Runs on a Windows-latest runner so you
+# can produce both platforms' artifacts from one tag push without needing
+# a local Windows machine when shipping a release.
+
+on:
+  push:
+    tags:
+      - "dag-v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dag/cogniflow-ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dag/cogniflow-ui/requirements.txt
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean cogniflow-ui.spec
+
+      # Stage the user-editable config.json next to the .exe and zip the
+      # whole one-folder build for distribution.
+      - name: Stage config.json + zip the build
+        shell: pwsh
+        run: |
+          Copy-Item config.json dist/cogniflow-ui/config.json -Force
+          Compress-Archive -Path dist/cogniflow-ui/* -DestinationPath dist/Cogniflow-UI-DAG-Windows.zip -Force
+          Get-ChildItem dist
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cogniflow-ui-dag-windows
+          path: dag/cogniflow-ui/dist/Cogniflow-UI-DAG-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/dag-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dag/cogniflow-ui/dist/Cogniflow-UI-DAG-Windows.zip
+          generate_release_notes: true

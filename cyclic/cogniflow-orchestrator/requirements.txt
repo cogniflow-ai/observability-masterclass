@@ -1,0 +1,9 @@
+# Cogniflow Orchestrator v3.0 — Python dependencies
+#
+# Required
+networkx>=3.0       # DAG topological sort and cycle detection
+filelock>=3.12      # Thread-safe events.jsonl writes
+
+# Development / testing
+pytest>=7.0
+pytest-cov>=4.0

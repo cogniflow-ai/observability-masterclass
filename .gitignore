@@ -1,0 +1,32 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# PyInstaller output
+build/
+dist/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local secrets / scratch
+*.local.json
+*.secret
+.env
+.env.local
+
+# Test caches and tool dirs
+.pytest_cache/
+.claude/
+
+# Orchestrator runtime data — UI seeds this on first launch
+dag/cogniflow-orchestrator/pipelines/*
+!dag/cogniflow-orchestrator/pipelines/.gitkeep
+cyclic/cogniflow-orchestrator/pipelines/*
+!cyclic/cogniflow-orchestrator/pipelines/.gitkeep

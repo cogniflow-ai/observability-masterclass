@@ -1,0 +1,45 @@
+{% if restore_ok is defined %}
+<div class="success-banner">✓ Restored version {{ restore_version }}.</div>
+{% endif %}
+
+<div class="version-panel">
+  <h4>Version History</h4>
+  <p class="version-file"><code>{{ file_path }}</code></p>
+
+  {% if versions %}
+  <table class="data-table">
+    <thead>
+      <tr><th>v#</th><th>Saved at</th><th>Notes</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for v in versions %}
+    <tr>
+      <td><strong>v{{ v.version }}</strong>{% if v.tag %} <span class="label-chip">{{ v.tag }}</span>{% endif %}</td>
+      <td><small>{{ v.saved_at[:19].replace('T',' ') }}</small></td>
+      <td>{{ v.message or '—' }}</td>
+      <td>
+        <form hx-post="/pipeline/{{ pipeline_name }}/versions/restore"
+              hx-target="#right-panel-content" hx-swap="innerHTML"
+              style="display:inline">
+          <input type="hidden" name="file_path" value="{{ file_path }}"/>
+          <input type="hidden" name="version"   value="{{ v.version }}"/>
+          <button type="submit" class="btn-ghost btn-sm"
+                  onclick="return confirm('Restore v{{ v.version }}?')">Restore</button>
+        </form>
+        <form hx-post="/pipeline/{{ pipeline_name }}/versions/delete"
+              hx-target="#right-panel-content" hx-swap="innerHTML"
+              style="display:inline">
+          <input type="hidden" name="file_path" value="{{ file_path }}"/>
+          <input type="hidden" name="version"   value="{{ v.version }}"/>
+          <button type="submit" class="btn-danger btn-sm"
+                  onclick="return confirm('Delete version {{ v.version }}?')">Del</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state-sm">No saved versions for this file.</p>
+  {% endif %}
+</div>

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Cogniflow Configurator — Pipelines{% endblock %}
+
+{% block sidebar_pipelines %}
+{% for p in pipelines %}
+<a href="/pipeline/{{ p.name }}" class="sidebar-link{% if p.running %} running{% endif %}">
+  <span class="sidebar-link-name">{{ p.display_name or p.name }}</span>
+  <span class="badge-mode {{ p.graph_mode }}">{{ p.graph_mode }}</span>
+</a>
+{% else %}
+<p class="sidebar-empty">No pipelines yet</p>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Pipelines</h1>
+  <button class="btn-primary" onclick="showModal('modal-new-pipeline')">+ New Pipeline</button>
+</div>
+
+{% if error %}
+<div class="error-banner">{{ error }}</div>
+{% endif %}
+
+{% if pipelines %}
+<div class="pipeline-grid">
+  {% for p in pipelines %}
+  <div class="pipeline-card-shell">
+    <a href="/pipeline/{{ p.name }}" class="pipeline-card{% if p.running %} running{% endif %}">
+      <div class="card-header">
+        <span class="card-name">{{ p.display_name or p.name }}</span>
+        <div class="card-badges">
+          <span class="badge-mode {{ p.graph_mode }}">{{ p.graph_mode }}</span>
+          {% if p.running %}<span class="badge-running">RUNNING</span>{% endif %}
+        </div>
+      </div>
+      {% if p.description %}<p class="card-desc">{{ p.description }}</p>{% endif %}
+      <div class="card-meta">
+        <span>{{ p.agent_count }} agent{{ p.agent_count != 1 and 's' or '' }}</span>
+        {% if p.category %}<span>{{ p.category }}</span>{% endif %}
+        {% for lbl in p.labels[:3] %}<span class="label-chip">{{ lbl }}</span>{% endfor %}
+      </div>
+    </a>
+    {% if not p.running %}
+    <form method="post" action="/pipeline/{{ p.name }}/delete"
+          class="pipeline-card-delete"
+          onsubmit="return confirm('Delete pipeline \'{{ p.name }}\' and its {{ p.agent_count }} agent{{ p.agent_count != 1 and 's' or '' }}? This cannot be undone from the UI (moved to trash).');">
+      <input type="hidden" name="confirm_name" value="{{ p.name }}"/>
+      <input type="hidden" name="trash" value="true"/>
+      <button type="submit" class="btn-card-delete" title="Delete pipeline">✕</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No pipelines found in <code>{{ settings.pipelines_root }}</code></p>
+  <p>Create your first pipeline or check that <code>PIPELINES_ROOT</code> is set correctly.</p>
+</div>
+{% endif %}
+
+<!-- New Pipeline Modal -->
+<div id="modal-new-pipeline" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>New Pipeline</h2>
+      <button onclick="hideModal('modal-new-pipeline')">✕</button>
+    </div>
+    <form method="post" action="/pipeline/new">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Directory name <span class="req">*</span></label>
+          <input type="text" name="name" required placeholder="my-pipeline"
+                 pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, hyphens, underscores"/>
+          <small>Lowercase alphanumeric, hyphens, underscores</small>
+        </div>
+        <div class="form-group">
+          <label>Display name</label>
+          <input type="text" name="display_name" placeholder="My Pipeline"/>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input type="text" name="description" placeholder="What does this pipeline do?"/>
+        </div>
+        <div class="form-group">
+          <label>Graph mode</label>
+          <select name="graph_mode">
+            <option value="dag">DAG (acyclic)</option>
+            <option value="cyclic">Cyclic (feedback loops)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" name="category" placeholder="research, analysis…"/>
+        </div>
+        <div class="form-group full">
+          <label>Start from template</label>
+          <select name="template_name">
+            <option value="">— Blank pipeline —</option>
+            {% for t in templates %}
+            <option value="{{ t.name }}">{{ t.display_name }} ({{ t.graph_mode }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-new-pipeline')">Cancel</button>
+        <button type="submit" class="btn-primary">Create Pipeline</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block right_panel %}{% endblock %}

@@ -1,0 +1,20 @@
+{% for ev in events %}
+{% set etype = ev.event | default('') %}
+{% set css = '' %}
+{% if 'done' in etype or 'complete' in etype %}{% set css = 'ev-done' %}
+{% elif 'fail' in etype or 'error' in etype or 'invalid' in etype %}{% set css = 'ev-fail' %}
+{% elif 'skip' in etype or 'bypass' in etype %}{% set css = 'ev-skip' %}
+{% elif 'approval' in etype or 'approved' in etype or 'rejected' in etype %}{% set css = 'ev-approval' %}
+{% elif ev.source == 'launcher' %}{% set css = 'ev-launcher' %}
+{% endif %}
+<div class="event-line {{ css }}"
+     title="{{ ev._ts_abs }}{% if ev.agent %} · {{ ev.agent }}{% endif %}">
+  <span class="event-ts">{{ ev._ts_rel }}</span>
+  <span class="event-type">{{ etype }}</span>
+  {% if ev.agent %}<span class="event-agent" title="{{ ev.agent }}">{{ ev.agent }}</span>{% endif %}
+</div>
+{% else %}
+<div style="padding:20px 16px; color:var(--txt3); font-size:12px">
+  No events yet. Start a pipeline to see activity.
+</div>
+{% endfor %}

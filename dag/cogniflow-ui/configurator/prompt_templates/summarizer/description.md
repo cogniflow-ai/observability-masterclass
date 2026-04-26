@@ -1,0 +1,1 @@
+A compression agent. Condenses one or more upstream artefacts into a shorter version that preserves the information required by downstream agents or by the end user. Summarizers declare what must be kept (key claims, numbers, entities) and what may be dropped, and emit prose or structured bullets at a bounded length.

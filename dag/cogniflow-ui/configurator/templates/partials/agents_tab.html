@@ -1,0 +1,127 @@
+{% set agents = pipeline.get('agents', []) if pipeline else [] %}
+
+<div class="agents-header">
+  <h3>Agents ({{ agents | length }})</h3>
+  <div class="agents-toolbar">
+    <input type="text" id="agent-filter" placeholder="Filter by name or type…"
+           oninput="filterAgents(this.value)" class="filter-input"/>
+    <button class="btn-primary btn-sm" onclick="showModal('modal-new-agent')">+ New Agent</button>
+  </div>
+</div>
+
+<div class="agents-grid" id="agents-grid">
+{% for a in agents %}
+{% if a is mapping %}
+<div class="agent-card" data-search="{{ a.get('id','') }} {{ a.get('name','') }} {{ a.get('type','') }} {{ a.get('category','') }}">
+  <div class="agent-card-header">
+    <div>
+      <span class="agent-id"><code>{{ a.get('id','—') }}</code></span>
+      <span class="agent-name">{{ a.get('name', a.get('id','—')) }}</span>
+    </div>
+    <span class="type-badge type-{{ a.get('type','worker') }}">{{ a.get('type','worker') }}</span>
+  </div>
+  {% if a.get('description') %}
+  <p class="agent-desc">{{ a.description }}</p>
+  {% endif %}
+  <div class="agent-labels">
+    {% for lbl in a.get('labels', []) %}
+    <span class="label-chip">{{ lbl }}</span>
+    {% endfor %}
+    {% if a.get('category') %}<span class="label-chip cat">{{ a.category }}</span>{% endif %}
+  </div>
+  {% if a.get('depends_on') %}
+  <div class="agent-deps">
+    <span class="deps-label">depends on:</span>
+    {% for dep in a.depends_on %}<code class="dep-chip">{{ dep }}</code>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="agent-actions">
+    <a href="#" class="btn-ghost btn-sm"
+       hx-get="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}"
+       hx-target="#right-panel-content"
+       hx-swap="innerHTML">Metadata</a>
+    <a href="/pipeline/{{ pipeline_name }}/prompt/{{ a.get('id') }}/01_system.md?standalone=1"
+       hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ a.get('id') }}/01_system.md"
+       hx-target="#right-panel-content"
+       hx-swap="innerHTML"
+       class="btn-ghost btn-sm">System Prompt</a>
+    <a href="#" class="btn-ghost btn-sm"
+       hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ a.get('id') }}/02_prompt.md"
+       hx-target="#right-panel-content"
+       hx-swap="innerHTML">Task Prompt</a>
+    {% if claude_bin_found %}
+    <form class="specialize-form"
+          data-agent-id="{{ a.get('id') }}"
+          hx-post="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}/specialize"
+          hx-target="#right-panel-content"
+          hx-swap="innerHTML"
+          style="display:inline">
+      <button type="submit" class="btn-primary btn-sm specialize-btn"
+              title="Tailor this agent's prompts via meta-prompt pipeline — may take a few minutes">
+        ⚙ Generate
+      </button>
+    </form>
+    {% endif %}
+    <button class="btn-danger btn-sm"
+            hx-post="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}/delete"
+            hx-confirm="Delete agent '{{ a.get('id') }}'?"
+            hx-target="body"
+            hx-push-url="/pipeline/{{ pipeline_name }}?tab=agents">
+      Delete
+    </button>
+  </div>
+</div>
+{% endif %}
+{% else %}
+<div class="empty-state">No agents defined. Go to the Graph tab to add agents.</div>
+{% endfor %}
+</div>
+
+<!-- New Agent Modal -->
+<div id="modal-new-agent" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>New Agent</h2>
+      <button onclick="hideModal('modal-new-agent')">✕</button>
+    </div>
+    <form method="post" action="/pipeline/{{ pipeline_name }}/agent/new">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Agent ID <span class="req">*</span></label>
+          <input name="agent_id" required placeholder="001_researcher"
+                 pattern="\d{3}_[a-z0-9_]+" title="Format: NNN_name"/>
+          <small>Format: NNN_name (e.g. 001_researcher)</small>
+        </div>
+        <div class="form-group">
+          <label>Display name</label>
+          <input name="agent_name" placeholder="Researcher"/>
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select name="agent_type">
+            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input name="category" placeholder="research…"/>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input name="description" placeholder="What does this agent do?"/>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:8px">
+        The agent is created with verbatim copies of the type's templates. Use
+        the <strong>⚙ Generate</strong> button on the agent's card to tailor
+        them to the instance.
+      </p>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-new-agent')">Cancel</button>
+        <button type="submit" class="btn-primary">Create Agent</button>
+      </div>
+    </form>
+  </div>
+</div>

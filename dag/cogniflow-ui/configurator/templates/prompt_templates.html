@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Prompt Templates — Cogniflow Configurator{% endblock %}
+
+{% block sidebar_pipelines %}
+<div class="sidebar-label">Meta</div>
+<a href="/prompt-templates?selected=_meta"
+   class="sidebar-link{% if is_meta %} active{% endif %}">
+  <span class="sidebar-link-name">⚙ Meta Prompts</span>
+</a>
+
+<div class="sidebar-label" style="margin-top:14px">Agent Types</div>
+{% for t in types %}
+<a href="/prompt-templates?selected={{ t.type }}"
+   class="sidebar-link{% if t.type == selected and not is_meta %} active{% endif %}">
+  <span class="sidebar-link-name">{{ t.type }}</span>
+</a>
+{% else %}
+<p class="sidebar-empty">No types yet</p>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Prompt Templates</h1>
+  <button class="btn-primary btn-sm" onclick="showModal('modal-new-type')">+ New Type</button>
+</div>
+
+<p class="muted">Per-agent-type starter prompts copied into each new agent folder at creation time. Stored under <code>{{ templates_dir }}</code>.</p>
+
+{% if error %}<div class="error-banner">{{ error }}</div>{% endif %}
+
+{% if is_meta %}
+<div class="ptpl-header">
+  <h2>⚙ Meta Prompts</h2>
+</div>
+<p class="muted">These prompts drive the <strong>one-shot specialization</strong> that tailors a type's generic templates for a newly-created agent instance. Edit with care — every new agent created with "Auto-generate" goes through these two prompts.</p>
+{% if not claude_bin_found %}
+<div class="warn-banner">⚠ <code>claude</code> CLI not found. Auto-generate is disabled until it is installed or <code>claude_bin</code> is set in <code>config.json</code>.</div>
+{% endif %}
+
+<section class="ptpl-section">
+  <div class="ptpl-section-head">
+    <h3>Meta System Prompt — <code>_meta/01_system.md</code></h3>
+    <span class="ptpl-hint">Passed as the <code>--system-prompt</code> of the specialization call.</span>
+  </div>
+  <form method="post" action="/prompt-templates/_meta/01_system.md">
+    <div class="hv-editor-wrap" data-logical="_meta/01_system.md"
+         data-required-taglines="">
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="content" class="hv-editor" spellcheck="true">{{ sys_content }}</textarea>
+    </div>
+    <div class="prompt-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <span class="hv-validity" data-validity></span>
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+      <span class="ptpl-hint">{{ sys_versions | length }} version(s) saved</span>
+    </div>
+  </form>
+</section>
+
+<section class="ptpl-section">
+  <div class="ptpl-section-head">
+    <h3>Meta Task Prompt — <code>_meta/02_prompt.md</code></h3>
+    <span class="ptpl-hint">Rendered with <code>{{ '{{AGENT_NAME}}' }}</code>, <code>{{ '{{TYPE_DESCRIPTION}}' }}</code>, <code>{{ '{{INSTANCE_NAME}}' }}</code>, <code>{{ '{{INSTANCE_DESCRIPTION}}' }}</code>, <code>{{ '{{SYSTEM_TEMPLATE}}' }}</code>, <code>{{ '{{TASK_TEMPLATE}}' }}</code> substituted before the call.</span>
+  </div>
+  <form method="post" action="/prompt-templates/_meta/02_prompt.md">
+    <div class="hv-editor-wrap" data-logical="_meta/02_prompt.md"
+         data-required-taglines="">
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="content" class="hv-editor" spellcheck="true">{{ task_content }}</textarea>
+    </div>
+    <div class="prompt-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <span class="hv-validity" data-validity></span>
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+      <span class="ptpl-hint">{{ task_versions | length }} version(s) saved</span>
+    </div>
+  </form>
+</section>
+
+{% elif not types %}
+<div class="empty-state">
+  <p>No agent-type templates found.</p>
+  <p>Click <strong>+ New Type</strong> to add one.</p>
+</div>
+{% elif selected %}
+<div class="ptpl-header">
+  <h2><code>{{ selected }}</code></h2>
+  <form method="post" action="/prompt-templates/{{ selected }}/delete"
+        onsubmit="return confirm('Delete the {{ selected }} type and both its files? Pipelines that already used it keep their copies.')"
+        style="display:inline">
+    <button type="submit" class="btn-danger btn-sm">Delete Type</button>
+  </form>
+</div>
+
+<section class="ptpl-section">
+  <div class="ptpl-section-head">
+    <h3>Type Description — <code>description.md</code></h3>
+    <span class="ptpl-hint">Used as <code>TYPE_DESCRIPTION</code> when auto-generating prompts for a new <code>{{ selected }}</code> instance.</span>
+  </div>
+  <form method="post" action="/prompt-templates/{{ selected }}/description">
+    <textarea name="content" class="ptpl-description" spellcheck="true"
+              placeholder="One paragraph: what this agent type does and how it fits in a pipeline.">{{ type_description }}</textarea>
+    <div class="prompt-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+    </div>
+  </form>
+</section>
+
+<section class="ptpl-section">
+  <div class="ptpl-section-head">
+    <h3>System Prompt — <code>01_system.md</code></h3>
+    <span class="ptpl-hint">Used as the starting content for <code>01_system.md</code> when adding an agent of type <code>{{ selected }}</code>.</span>
+  </div>
+  <form method="post" action="/prompt-templates/{{ selected }}/01_system.md">
+    <div class="hv-editor-wrap" data-logical="{{ selected }}/01_system.md"
+         data-required-taglines="">
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="content" class="hv-editor" spellcheck="true">{{ sys_content }}</textarea>
+    </div>
+    <div class="prompt-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <span class="hv-validity" data-validity></span>
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+      <span class="ptpl-hint">{{ sys_versions | length }} version(s) saved</span>
+    </div>
+  </form>
+</section>
+
+<section class="ptpl-section">
+  <div class="ptpl-section-head">
+    <h3>Task Prompt — <code>02_prompt.md</code></h3>
+    <span class="ptpl-hint">Used as the starting content for <code>02_prompt.md</code> when adding an agent of type <code>{{ selected }}</code>.</span>
+  </div>
+  <form method="post" action="/prompt-templates/{{ selected }}/02_prompt.md">
+    <div class="hv-editor-wrap" data-logical="{{ selected }}/02_prompt.md"
+         data-required-taglines="">
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="content" class="hv-editor" spellcheck="true">{{ task_content }}</textarea>
+    </div>
+    <div class="prompt-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      <span class="hv-validity" data-validity></span>
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+      <span class="ptpl-hint">{{ task_versions | length }} version(s) saved</span>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<div id="modal-new-type" class="modal-overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>New Agent Type</h2>
+      <button onclick="hideModal('modal-new-type')">✕</button>
+    </div>
+    <form method="post" action="/prompt-templates/new">
+      <div class="form-group">
+        <label>Type name <span class="req">*</span></label>
+        <input name="type_name" required
+               placeholder="e.g. critic, planner"
+               pattern="[a-z0-9_]+"
+               title="Lowercase letters, numbers, underscores"/>
+        <small>Used as the folder name and the value selected in the agent form.</small>
+      </div>
+      <p class="muted">Creates an empty <code>01_system.md</code> and <code>02_prompt.md</code> you can then edit. You will also need to add the new type to <code>validation.VALID_TYPES</code> and the agent-form dropdowns if you want the UI to offer it.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-new-type')">Cancel</button>
+        <button type="submit" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block right_panel %}
+<div class="detail-panel">
+  <h3>How this works</h3>
+  <p class="muted">When you add an agent of type <code>X</code> to a pipeline, the Configurator copies <code>prompt_templates/X/01_system.md</code> and <code>02_prompt.md</code> into the new agent's folder. You can then edit them per-agent without affecting the template.</p>
+  <p class="muted">Existing agents are not touched when you edit a template here.</p>
+</div>
+{% endblock %}

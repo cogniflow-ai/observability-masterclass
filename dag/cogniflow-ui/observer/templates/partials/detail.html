@@ -1,0 +1,61 @@
+<div class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-title">{{ agent_id }}</div>
+    <button class="btn btn-sm"
+            onclick="document.getElementById('detail-container').innerHTML=''">
+      ✕ Close
+    </button>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="output"
+            onclick="switchTab('output')">Output</button>
+    <button class="tab-btn" data-tab="context"
+            onclick="switchTab('context')">Context</button>
+    <button class="tab-btn" data-tab="system"
+            onclick="switchTab('system')">System Prompt</button>
+    <button class="tab-btn" data-tab="prompt"
+            onclick="switchTab('prompt')">Task Prompt</button>
+    <button class="tab-btn" data-tab="status"
+            onclick="switchTab('status')">Status</button>
+  </div>
+
+  <!-- Output tab -->
+  <div class="tab-content active" id="tab-output">
+    <div class="copy-btn-wrap">
+      <button class="btn btn-sm copy-btn"
+              onclick="copyOutput('{{ agent_id }}')">📋 Copy</button>
+    </div>
+    <textarea id="output-raw-{{ agent_id }}"
+              style="display:none">{{ output_raw }}</textarea>
+    <div class="output-md">{{ output_html | safe }}</div>
+  </div>
+
+  <!-- Context tab -->
+  <div class="tab-content" id="tab-context">
+    <pre class="content-pre" data-logical="04_context.md"><code>{{ context }}</code></pre>
+  </div>
+
+  <!-- System Prompt tab -->
+  <div class="tab-content" id="tab-system">
+    <pre class="content-pre" data-logical="01_system.md"><code>{{ system }}</code></pre>
+  </div>
+
+  <!-- Task Prompt tab -->
+  <div class="tab-content" id="tab-prompt">
+    <pre class="content-pre" data-logical="02_prompt.md"><code>{{ prompt }}</code></pre>
+  </div>
+
+  <!-- Status tab -->
+  <div class="tab-content" id="tab-status">
+    <pre class="content-pre" data-logical="06_status.json"><code>{{ status_raw }}</code></pre>
+    <div class="deps-list">
+      {% if depends_on %}
+        <strong>Depends on:</strong> {{ depends_on | join(', ') }}
+      {% else %}
+        <strong>No dependencies</strong> — runs in the first parallel layer.
+      {% endif %}
+    </div>
+  </div>
+</div>

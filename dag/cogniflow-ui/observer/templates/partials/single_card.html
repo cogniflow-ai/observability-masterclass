@@ -1,0 +1,80 @@
+<div class="agent-card {% if card.needs_approval %}needs-approval{% endif %} {% if card.status == 'running' %}pulse{% endif %}"
+     id="card-{{ card.id }}"
+     data-agent-id="{{ card.id }}"
+     data-output-preview=""
+     onclick="loadDetail('{{ name }}', '{{ card.id }}', this)">
+
+  <!-- Header -->
+  <div class="card-header">
+    <div class="status-dot {{ card.status_colour }}" title="{{ card.status }}"></div>
+    <div class="card-title" title="{{ card.id }}">{{ card.id }}</div>
+  </div>
+
+  {% if card.description %}
+  <div class="card-description">{{ card.description }}</div>
+  {% endif %}
+
+  <div class="card-status">{{ card.status_label }}</div>
+
+  <!-- Metrics -->
+  <div class="card-metrics" style="margin-top:8px">
+    <div class="card-metric">
+      <span class="card-metric-label">Duration</span>
+      <span class="card-metric-value">{{ card.duration }}</span>
+    </div>
+    <div class="card-metric">
+      <span class="card-metric-label">Output</span>
+      <span class="card-metric-value">{{ card.output_bytes }}</span>
+    </div>
+    <div class="card-metric" title="Estimated cost (USD) from last run">
+      <span class="card-metric-label">Cost</span>
+      <span class="card-metric-value">{{ card.cost }}</span>
+    </div>
+    {% if card.started_at and card.started_at != '—' %}
+    <div class="card-metric">
+      <span class="card-metric-label">Started</span>
+      <span class="card-metric-value">{{ card.started_at }}</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Token fill bar -->
+  {% if card.show_token_bar %}
+  <div class="token-bar-wrap">
+    <div class="token-bar-label">Context: {{ card.token_count }} tokens</div>
+    <div class="token-bar">
+      <div class="token-fill {{ card.token_fill_colour }}"
+           style="width:{{ card.token_fill_pct }}%"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Approval section -->
+  {% if card.needs_approval %}
+  <div class="approval-section" onclick="event.stopPropagation()">
+    <div class="approval-label">⏸ This agent is waiting for your approval</div>
+    <div class="approval-btns">
+      <form hx-post="/pipelines/{{ name }}/agents/{{ card.id }}/approve"
+            hx-target="#card-{{ card.id }}"
+            hx-swap="outerHTML"
+            style="display:inline">
+        <input type="hidden" name="action" value="approve">
+        <button type="submit" class="btn btn-green btn-sm">✓ Approve</button>
+      </form>
+      <button class="btn btn-red btn-sm" id="reject-btn-{{ card.id }}"
+              onclick="toggleRejection('{{ card.id }}')">✗ Reject</button>
+    </div>
+    <div class="rejection-note" id="reject-note-{{ card.id }}">
+      <form hx-post="/pipelines/{{ name }}/agents/{{ card.id }}/approve"
+            hx-target="#card-{{ card.id }}"
+            hx-swap="outerHTML">
+        <input type="hidden" name="action" value="reject">
+        <input type="text" name="note" placeholder="Optional rejection note…"
+               autocomplete="off">
+        <button type="submit" class="btn btn-red btn-sm">Confirm Reject</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+</div>

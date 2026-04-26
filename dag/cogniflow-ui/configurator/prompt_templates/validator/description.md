@@ -1,0 +1,1 @@
+A verification agent. Checks an upstream artefact against explicit, enumerable rules — schema, policy, factual or structural constraints — and emits a pass/fail verdict plus a list of concrete violations. Validators gate progress: downstream agents run only if the verdict is pass, or consume the violation list to drive a targeted revision pass.

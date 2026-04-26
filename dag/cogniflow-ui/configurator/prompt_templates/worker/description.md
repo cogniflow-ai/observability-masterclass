@@ -1,0 +1,1 @@
+A generalist execution agent. Performs a single well-scoped task on the inputs handed to it by upstream agents and emits a structured output for downstream consumers. Most pipelines have several workers, each responsible for one concrete transformation. Workers do not decide who runs next and do not aggregate across siblings — they focus on their own task.

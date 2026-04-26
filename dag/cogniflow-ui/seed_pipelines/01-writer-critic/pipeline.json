@@ -1,0 +1,38 @@
+{
+  "id": "01-writer-critic",
+  "name": "Writer & Critic",
+  "validate_taglines": true,
+  "description": "Writer drafts a 300-word blog post about Claude CLI; critic reviews it.",
+  "agents": [
+    {
+      "id": "001_writer",
+      "depends_on": [],
+      "description": "Drafts the blog post."
+    },
+    {
+      "id": "002_critic",
+      "depends_on": [
+        "001_writer"
+      ],
+      "description": "Reviews the draft: ratings and improvement list."
+    }
+  ],
+  "graph_orientation": "horizontal",
+  "updated_at": "2026-04-25T09:25:15.504797+00:00",
+  "graph_mode": "dag",
+  "validated_taglines_system": [
+    "role",
+    "responsibilities",
+    "guardrails"
+  ],
+  "validated_taglines_task": [
+    "description",
+    "goals",
+    "context",
+    "input",
+    "output",
+    "format",
+    "guardrails"
+  ],
+  "category": ""
+}

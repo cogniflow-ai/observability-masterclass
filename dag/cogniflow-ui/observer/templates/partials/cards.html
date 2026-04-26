@@ -1,0 +1,14 @@
+<!-- Summary refresh (OOB → updates #summary-container at top of page) -->
+<div id="summary-container" hx-swap-oob="true">
+  {% include "partials/summary.html" %}
+</div>
+
+<!-- DAG SVG update (OOB) -->
+<div id="dag-container" hx-swap-oob="true">{{ dag_svg | safe }}</div>
+
+<!-- Cards grid -->
+<div class="cards-grid">
+  {% for card in cards %}
+    {% include "partials/single_card.html" %}
+  {% endfor %}
+</div>

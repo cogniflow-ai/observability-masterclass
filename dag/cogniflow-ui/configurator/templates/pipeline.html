@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}{{ pipeline_name }} — Cogniflow Configurator{% endblock %}
+
+{% block sidebar_pipelines %}
+{# Preserve the user's current tab/subtab when jumping between pipelines so
+   they land on the same view (Diagram, Topology, Configuration, Agents, …). #}
+{% set _current_qs = '?tab=' ~ tab %}
+{% if tab == 'graph' and subtab %}{% set _current_qs = _current_qs ~ '&subtab=' ~ subtab %}{% endif %}
+{% for p in settings.pipelines_root.iterdir() | sort(attribute='name') %}{% if p.is_dir() and not p.name.startswith('.') and p.name != 'templates' %}{% set pjpath = p / 'pipeline.json' %}{% if pjpath.exists() %}
+<a href="/pipeline/{{ p.name }}{{ _current_qs }}" class="sidebar-link{% if p.name == pipeline_name %} active{% endif %}">
+  <span class="sidebar-link-name">{{ p.name }}</span>
+</a>
+{% endif %}{% endif %}{% endfor %}
+{% endblock %}
+
+{% block header_extra %}
+<span class="header-pipeline-name">{{ pipeline.get('name', pipeline_name) }}</span>
+{% if running %}<span class="badge-running">LIVE</span>{% endif %}
+<span class="badge-mode {{ pipeline.get('graph_mode','dag') }}">{{ pipeline.get('graph_mode','dag') }}</span>
+<span class="val-badge val-{{ validation.badge_color }}" id="val-badge">{{ validation.status }}</span>
+{% if not running %}
+{% set agent_count = pipeline.get('agents', []) | length %}
+<form method="post" action="/pipeline/{{ pipeline_name }}/delete" style="display:inline"
+      onsubmit="return confirm('Delete pipeline \'{{ pipeline_name }}\' and its {{ agent_count }} agent{{ agent_count != 1 and 's' or '' }}? This cannot be undone from the UI (moved to trash).');">
+  <input type="hidden" name="confirm_name" value="{{ pipeline_name }}"/>
+  <input type="hidden" name="trash" value="true"/>
+  <button type="submit" class="btn-danger btn-sm" title="Delete pipeline">🗑 Delete</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if running %}
+<div class="warn-banner">
+  ⚠️ This pipeline is currently <strong>running</strong>. Changes will take effect on the next run.
+</div>
+{% endif %}
+
+<!-- Main tabs -->
+<div class="tab-bar">
+  <a href="/pipeline/{{ pipeline_name }}?tab=graph"
+     class="tab{% if tab == 'graph' %} active{% endif %}">⬡ Graph</a>
+  <a href="/pipeline/{{ pipeline_name }}?tab=agents"
+     class="tab{% if tab == 'agents' %} active{% endif %}">🤖 Agents</a>
+  <a href="/pipeline/{{ pipeline_name }}?tab=files"
+     class="tab{% if tab == 'files' %} active{% endif %}">📁 Files</a>
+  <a href="/pipeline/{{ pipeline_name }}?tab=validate"
+     class="tab{% if tab == 'validate' %} active{% endif %}">✓ Validate</a>
+</div>
+
+<div class="tab-content">
+
+{% if tab == 'graph' %}
+<!-- ── GRAPH TAB ────────────────────────────────────────── -->
+{# Tag lists: respect any stored value (including empty lists the user cleared);
+   only fall back to globals when the field is absent entirely. #}
+{% set sys_raw = pipeline.get('validated_taglines_system') %}
+{% if sys_raw is none %}{% set sys_raw = pipeline.get('validated_taglines') %}{% endif %}
+{% if sys_raw is none %}{% set sys_csv = global_taglines_system | join(',') %}
+{% elif sys_raw is iterable and sys_raw is not string %}{% set sys_csv = sys_raw | join(',') %}
+{% else %}{% set sys_csv = sys_raw or '' %}{% endif %}
+{% set task_raw = pipeline.get('validated_taglines_task') %}
+{% if task_raw is none %}{% set task_raw = pipeline.get('validated_taglines') %}{% endif %}
+{% if task_raw is none %}{% set task_csv = global_taglines_task | join(',') %}
+{% elif task_raw is iterable and task_raw is not string %}{% set task_csv = task_raw | join(',') %}
+{% else %}{% set task_csv = task_raw or '' %}{% endif %}
+{% set current_mode = pipeline.get('graph_mode','dag') %}
+<div class="graph-tab-header">
+  <div class="graph-tab-meta">
+    <label><strong>Mode:</strong></label>
+    <div class="mode-toggle" role="group" aria-label="Graph mode"
+         data-save-url="/pipeline/{{ pipeline_name }}/settings/mode"
+         data-refresh-url="/pipeline/{{ pipeline_name }}/graph">
+      <button type="button" data-mode="dag"
+              class="mode-btn{% if current_mode=='dag' %} active{% endif %}"
+              title="Directed acyclic graph">dag</button><!--
+   --><button type="button" data-mode="cyclic"
+              class="mode-btn{% if current_mode=='cyclic' %} active{% endif %}"
+              title="Cyclic graph — feedback edges allowed">cyclic</button>
+    </div>
+    <label title="When enabled, saves to 01_system.md / 02_prompt.md are checked for required, paired, non-nested taglines.">
+      <input type="checkbox"
+             onchange="saveValidateTaglines('{{ pipeline_name }}', this.checked)"
+             {% if pipeline.get('validate_taglines') %}checked{% endif %}/>
+      Validate taglines
+    </label>
+    <div class="tag-input-group">
+      <span class="tag-input-label" title="Required taglines for 01_system.md">System prompt:</span>
+      <div class="tag-input" data-placeholder="add tag + Enter"
+           data-kind="system"
+           data-save-url="/pipeline/{{ pipeline_name }}/settings/taglines">
+        <input type="hidden" name="validated_taglines_system" value="{{ sys_csv }}"/>
+      </div>
+    </div>
+    <div class="tag-input-group">
+      <span class="tag-input-label" title="Required taglines for 02_prompt.md">Task prompt:</span>
+      <div class="tag-input" data-placeholder="add tag + Enter"
+           data-kind="task"
+           data-save-url="/pipeline/{{ pipeline_name }}/settings/taglines">
+        <input type="hidden" name="validated_taglines_task" value="{{ task_csv }}"/>
+      </div>
+    </div>
+  </div>
+  <div class="graph-subtabs" id="graph-subtabs">
+    <a href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=view"
+       class="subtab{% if subtab=='view' %} active{% endif %}">Diagram</a>
+    <a href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=topology"
+       class="subtab{% if subtab=='topology' %} active{% endif %}">Topology</a>
+    <a href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=json"
+       class="subtab{% if subtab=='json' %} active{% endif %}">Configuration</a>
+    <span class="subtab-kbhint" title="Press Tab to cycle these sub-views">Tab ⇥</span>
+  </div>
+</div>
+
+{% if subtab == 'view' or not subtab %}
+  {% include "partials/graph_view.html" %}
+{% elif subtab == 'topology' %}
+  {% include "partials/topology.html" %}
+{% elif subtab == 'json' %}
+  {% include "partials/json_editor.html" %}
+{% endif %}
+
+{% elif tab == 'agents' %}
+<!-- ── AGENTS TAB ───────────────────────────────────────── -->
+  {% include "partials/agents_tab.html" %}
+
+{% elif tab == 'files' %}
+<!-- ── FILES TAB ────────────────────────────────────────── -->
+<div class="two-col">
+  <div id="file-browser"
+       hx-get="/pipeline/{{ pipeline_name }}/files"
+       hx-trigger="load"
+       hx-target="#file-browser">
+    <p class="loading">Loading files…</p>
+  </div>
+  <div id="file-editor-area">
+    <div class="panel-placeholder">Select a file to edit.</div>
+  </div>
+</div>
+
+{% elif tab == 'validate' %}
+<!-- ── VALIDATE TAB ─────────────────────────────────────── -->
+<div class="validate-header">
+  <button class="btn-primary"
+          hx-post="/pipeline/{{ pipeline_name }}/validate"
+          hx-target="#validate-results"
+          hx-swap="innerHTML">
+    ✓ Validate Now
+  </button>
+</div>
+<div id="validate-results">
+  {% set val = validation %}
+  {% include "partials/validate_panel.html" %}
+</div>
+
+{% endif %}
+</div>
+
+{% endblock %}
+
+{% block right_panel %}
+<div id="right-panel-content">
+  <div class="panel-placeholder">
+    <p>Click an agent to view details.</p>
+  </div>
+</div>
+{% endblock %}

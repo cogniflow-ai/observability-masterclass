@@ -1,0 +1,50 @@
+{% if save_ok is defined and save_ok %}
+<div class="success-banner">✓ File saved.</div>
+{% endif %}
+{% if save_error is defined and save_error %}
+<div class="error-banner">⚠ Not saved — {{ save_error }}</div>
+{% endif %}
+{% if not_found is defined and not_found %}
+<div class="error-banner">File not found.</div>
+{% else %}
+<div class="file-editor-panel">
+  <div class="file-editor-header">
+    <code>{{ file_path }}</code>
+    <div class="file-editor-actions">
+      <form hx-post="/pipeline/{{ pipeline_name }}/files-delete"
+            hx-target="#file-editor-area"
+            hx-swap="innerHTML"
+            style="display:inline">
+        <input type="hidden" name="rel_path" value="{{ file_path }}"/>
+        <button type="submit" class="btn-danger btn-sm"
+                onclick="return confirm('Delete {{ file_path }}?')">Delete</button>
+      </form>
+      <a hx-get="/pipeline/{{ pipeline_name }}/versions/{{ file_path }}"
+         hx-target="#right-panel-content"
+         hx-swap="innerHTML"
+         href="#"
+         class="btn-ghost btn-sm">History</a>
+    </div>
+  </div>
+  <form hx-post="/pipeline/{{ pipeline_name }}/files/{{ file_path }}"
+        hx-target="#file-editor-area"
+        hx-swap="innerHTML">
+    {% set is_prompt_file = file_path.endswith('/01_system.md') or file_path.endswith('/02_prompt.md') or file_path == '01_system.md' or file_path == '02_prompt.md' %}
+    <div class="hv-editor-wrap" data-logical="{{ file_path }}"
+         {% if is_prompt_file %}data-required-taglines="{{ (required_taglines or []) | join(',') }}"{% endif %}>
+      <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+      <textarea name="content" class="hv-editor" spellcheck="false">{{ content }}</textarea>
+    </div>
+    <div class="file-editor-footer">
+      <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+      {% if file_path.endswith('.json') or file_path.endswith('.jsonl') or is_prompt_file %}
+      <span class="hv-validity" data-validity></span>
+      {% endif %}
+      {% if file_path.endswith('.json') or file_path.endswith('.jsonl') %}
+      <button type="button" class="btn-ghost btn-sm" data-format-json>⤵ Format</button>
+      {% endif %}
+      <button type="submit" class="btn-primary btn-sm">Save</button>
+    </div>
+  </form>
+</div>
+{% endif %}

@@ -1,0 +1,62 @@
+<!-- file_browser.html -->
+<div class="file-browser">
+  <div class="file-browser-toolbar">
+    <strong>Files</strong>
+    <button class="btn-ghost btn-sm" onclick="showModal('modal-new-file')">+ New</button>
+  </div>
+  <div class="file-tree">
+    {% macro render_tree(items, depth=0) %}
+    {% for item in items %}
+    {% if item.type == 'dir' %}
+    <details {% if depth == 0 %}open{% endif %} class="file-dir">
+      <summary class="file-item dir-item">📁 {{ item.name }}</summary>
+      <div class="file-children">{{ render_tree(item.children, depth+1) }}</div>
+    </details>
+    {% else %}
+    <div class="file-item {% if not item.is_text %}binary{% endif %}"
+         {% if item.is_text %}
+         hx-get="/pipeline/{{ pipeline_name }}/files/{{ item.path }}"
+         hx-target="#file-editor-area"
+         hx-swap="innerHTML"
+         style="cursor:pointer"
+         {% endif %}
+         title="{{ item.path }}">
+      {% if item.is_text %}📄{% else %}🔒{% endif %} {{ item.name }}
+      <span class="file-size">{{ item.size | filesizeformat if item.size > 1024 else item.size ~ 'B' }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endmacro %}
+    {{ render_tree(tree) }}
+  </div>
+</div>
+
+<!-- New File Modal -->
+<div id="modal-new-file" class="modal-overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>New File / Directory</h2>
+      <button onclick="hideModal('modal-new-file')">✕</button>
+    </div>
+    <form hx-post="/pipeline/{{ pipeline_name }}/files-new"
+          hx-target="#file-browser"
+          hx-swap="outerHTML"
+          onsubmit="hideModal('modal-new-file')">
+      <div class="form-group">
+        <label>Path (relative to pipeline dir)</label>
+        <input name="rel_path" required placeholder="inputs/data.txt"/>
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select name="is_dir">
+          <option value="false">File</option>
+          <option value="true">Directory</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-new-file')">Cancel</button>
+        <button type="submit" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>

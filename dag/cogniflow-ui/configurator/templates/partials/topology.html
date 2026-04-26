@@ -1,0 +1,282 @@
+{% set agents = pipeline.get('agents', []) if pipeline else [] %}
+{% set edges = pipeline.get('edges', []) if pipeline else [] %}
+{% set gmode = pipeline.get('graph_mode', 'dag') if pipeline else 'dag' %}
+
+<div id="topology-panel">
+
+{% if error %}
+<div class="error-banner">{{ error }}</div>
+{% endif %}
+
+<!-- Validation badge refresh -->
+<div hx-swap-oob="true" id="val-badge"
+     class="val-badge val-{{ validation.badge_color }}">{{ validation.status }}</div>
+
+<!-- ── AGENTS TABLE ──────────────────────────────────────── -->
+<div class="section-header">
+  <h3>Agents</h3>
+  <button class="btn-primary btn-sm" onclick="showModal('modal-add-agent')">+ Add Agent</button>
+</div>
+
+{% if agents %}
+<div class="table-wrap">
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>ID</th><th>Name</th><th>Type</th><th>Depends on</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in agents %}
+    {% if a is mapping %}
+    <tr>
+      <td><code>{{ a.get('id','—') }}</code></td>
+      <td>{{ a.get('name','—') }}</td>
+      <td><span class="type-badge type-{{ a.get('type','worker') }}">{{ a.get('type','worker') }}</span></td>
+      <td>
+        {% if a.get('depends_on') %}
+          {% for dep in a.depends_on %}<code class="dep-chip">{{ dep }}</code>{% endfor %}
+        {% else %}—{% endif %}
+      </td>
+      <td class="actions">
+        <button class="btn-ghost btn-sm"
+                onclick="openEditAgent('{{ a.get('id') }}','{{ a.get('name','') }}','{{ a.get('type','worker') }}','{{ a.get('category','') }}','{{ a.get('description','') }}','{{ a.get('depends_on',[])|join(',') }}','{{ a.get('timeout_s','') }}','{{ 'true' if a.get('require_approval') else 'false' }}')">
+          Edit
+        </button>
+        <button class="btn-danger btn-sm"
+                hx-delete="/pipeline/{{ pipeline_name }}/graph/agent/{{ a.get('id') }}"
+                hx-target="#topology-panel"
+                hx-swap="outerHTML"
+                hx-confirm="Remove agent '{{ a.get('id') }}'? This will also remove all its edges.">
+          Remove
+        </button>
+        <a class="btn-ghost btn-sm"
+           href="/pipeline/{{ pipeline_name }}?tab=agents"
+           title="Edit prompts and metadata">Prompts</a>
+        {% if claude_bin_found %}
+        <form class="specialize-form"
+              data-agent-id="{{ a.get('id') }}"
+              hx-post="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}/specialize"
+              hx-target="#right-panel-content"
+              hx-swap="innerHTML"
+              style="display:inline">
+          <button type="submit" class="btn-primary btn-sm specialize-btn"
+                  title="Tailor 01_system.md and 02_prompt.md via meta-prompt pipeline — may take up to a few minutes">
+            ⚙ Generate
+          </button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state-sm">No agents yet. Add one above.</div>
+{% endif %}
+
+<!-- ── EDGES TABLE (cyclic only) ─────────────────────────── -->
+{% if gmode == 'cyclic' %}
+<div class="section-header" style="margin-top:24px">
+  <h3>Cyclic Edges</h3>
+  <button class="btn-primary btn-sm" onclick="showModal('modal-add-edge')">+ Add Edge</button>
+</div>
+
+{% if edges %}
+<div class="table-wrap">
+<table class="data-table">
+  <thead>
+    <tr><th>From</th><th>To</th><th>Type</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+    {% for e in edges %}
+    {% if e is mapping %}
+    <tr>
+      <td><code>{{ e.get('from','—') }}</code></td>
+      <td><code>{{ e.get('to','—') }}</code></td>
+      <td><span class="edge-badge edge-{{ e.get('type','feedback') }}">{{ e.get('type','—') }}</span></td>
+      <td>
+        <button class="btn-danger btn-sm"
+                hx-post="/pipeline/{{ pipeline_name }}/graph/edge/delete"
+                hx-vals='{"from_id":"{{ e.get('from') }}","to_id":"{{ e.get('to') }}","edge_type":"{{ e.get('type') }}"}'
+                hx-target="#topology-panel"
+                hx-swap="outerHTML"
+                hx-confirm="Remove this edge?">
+          Remove
+        </button>
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state-sm">No cyclic edges defined.</div>
+{% endif %}
+{% endif %}
+
+<!-- ── ADD AGENT MODAL ───────────────────────────────────── -->
+<div id="modal-add-agent" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Add Agent</h2>
+      <button onclick="hideModal('modal-add-agent')">✕</button>
+    </div>
+    <form hx-post="/pipeline/{{ pipeline_name }}/graph/agent"
+          hx-target="#topology-panel"
+          hx-swap="outerHTML"
+          onsubmit="hideModal('modal-add-agent')">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Agent ID <span class="req">*</span></label>
+          <input name="agent_id" required placeholder="001_researcher"
+                 pattern="\d{3}_[a-z0-9_]+"
+                 title="Format: NNN_name (e.g. 001_researcher)"/>
+          <small>Format: NNN_name</small>
+        </div>
+        <div class="form-group">
+          <label>Display name</label>
+          <input name="agent_name" placeholder="Researcher"/>
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select name="agent_type">
+            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input name="category" placeholder="research, analysis…"/>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input name="description" placeholder="What does this agent do?"/>
+        </div>
+        <div class="form-group full">
+          <label>Depends on (comma-separated IDs)</label>
+          <input name="depends_on" placeholder="001_researcher, 002_analyst"/>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:8px">
+        The agent is created with verbatim copies of the type's templates. Use
+        the <strong>⚙ Generate Prompts</strong> button on the agent's row to
+        tailor them to the instance via the meta-prompt pipeline.
+      </p>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-add-agent')">Cancel</button>
+        <button type="submit" class="btn-primary">Add Agent</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── EDIT AGENT MODAL ──────────────────────────────────── -->
+<div id="modal-edit-agent" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Edit Agent</h2>
+      <button onclick="hideModal('modal-edit-agent')">✕</button>
+    </div>
+    <form id="edit-agent-form" method="post" onsubmit="submitEditAgent(event)">
+      <input type="hidden" id="edit-agent-id" name="_agent_id"/>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Agent ID</label>
+          <input id="edit-field-id" disabled class="disabled-input"/>
+        </div>
+        <div class="form-group">
+          <label>Display name</label>
+          <input name="agent_name" id="edit-field-name"/>
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select name="agent_type" id="edit-field-type">
+            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input name="category" id="edit-field-category"/>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input name="description" id="edit-field-description"/>
+        </div>
+        <div class="form-group full">
+          <label>Depends on (comma-separated IDs)</label>
+          <input name="depends_on" id="edit-field-depends"/>
+        </div>
+        <div class="form-group">
+          <label>Timeout (seconds)</label>
+          <input name="timeout_s" id="edit-field-timeout" type="number" min="1"/>
+        </div>
+        <div class="form-group">
+          <label>Require approval</label>
+          <select name="require_approval" id="edit-field-approval">
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-edit-agent')">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── ADD EDGE MODAL ────────────────────────────────────── -->
+{% if gmode == 'cyclic' %}
+<div id="modal-add-edge" class="modal-overlay" style="display:none">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>Add Cyclic Edge</h2>
+      <button onclick="hideModal('modal-add-edge')">✕</button>
+    </div>
+    <form hx-post="/pipeline/{{ pipeline_name }}/graph/edge"
+          hx-target="#topology-panel"
+          hx-swap="outerHTML"
+          onsubmit="hideModal('modal-add-edge')">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>From <span class="req">*</span></label>
+          <select name="from_id" required>
+            {% for aid in agent_ids %}
+            <option value="{{ aid }}">{{ aid }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>To <span class="req">*</span></label>
+          <select name="to_id" required>
+            {% for aid in agent_ids %}
+            <option value="{{ aid }}">{{ aid }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group full">
+          <label>Edge type</label>
+          <select name="edge_type">
+            <option value="feedback">feedback (back-edge, dashed)</option>
+            <option value="peer">peer (bidirectional)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-add-edge')">Cancel</button>
+        <button type="submit" class="btn-primary">Add Edge</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+</div> <!-- /#topology-panel -->

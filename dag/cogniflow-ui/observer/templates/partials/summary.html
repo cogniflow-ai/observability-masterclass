@@ -1,0 +1,30 @@
+<!-- Progress bar -->
+<div class="progress-wrap">
+  <div class="progress-label">
+    <span>{{ summary.done }} of {{ summary.total }} agents complete</span>
+    <span>{{ summary.pct }}%</span>
+  </div>
+  <div class="progress-bar">
+    <div class="progress-fill" style="width:{{ summary.pct }}%"></div>
+  </div>
+</div>
+
+<!-- Summary strip -->
+<div class="summary-strip">
+  <div class="summary-item">
+    <span class="summary-count c-blue">{{ summary.running }}</span>
+    <span class="summary-label">Running</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-count c-green">{{ summary.done }}</span>
+    <span class="summary-label">Done</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-count c-red">{{ summary.failed }}</span>
+    <span class="summary-label">Failed</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-count c-purple">{{ summary.waiting_approval }}</span>
+    <span class="summary-label">Waiting</span>
+  </div>
+</div>

@@ -1,0 +1,1 @@
+A decision agent. Reads its inputs and emits a routing decision — usually the id of the next agent to run, or a short set of branches to activate — based on declared criteria. Routers do not do domain work themselves; their output is consumed by the orchestrator or control layer to pick the next step in a cyclic or branching pipeline.

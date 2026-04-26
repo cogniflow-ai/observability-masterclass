@@ -1,0 +1,54 @@
+{% set val = validation %}
+<div class="validate-panel">
+  <div class="val-summary val-{{ val.badge_color }}">
+    <span class="val-status-label">{{ val.status | upper }}</span>
+    {% if ran_at is defined %}<span class="val-time">Last run: {{ ran_at }}</span>{% endif %}
+    <span>{{ val.errors | length }} error(s), {{ val.warnings | length }} warning(s)</span>
+  </div>
+
+  {% if val.errors %}
+  <div class="val-section">
+    <h4>Errors (block execution)</h4>
+    {% set sections = ['graph','agents','prompts','files'] %}
+    {% for sec in sections %}
+    {% set sec_errors = val.errors | selectattr('section','eq',sec) | list %}
+    {% if sec_errors %}
+    <div class="val-group">
+      <div class="val-group-title">{{ sec | capitalize }}</div>
+      {% for e in sec_errors %}
+      <div class="val-item error">
+        <span class="val-field">{{ e.field }}</span>
+        <span class="val-msg">{{ e.message }}</span>
+        {% if sec == 'graph' %}
+        <a href="/pipeline/{{ pipeline_name }}?tab=graph&subtab=topology" class="val-link">→ Fix</a>
+        {% elif sec == 'agents' %}
+        <a href="/pipeline/{{ pipeline_name }}?tab=agents" class="val-link">→ Fix</a>
+        {% elif sec == 'prompts' %}
+        <a href="/pipeline/{{ pipeline_name }}?tab=agents" class="val-link">→ Fix</a>
+        {% elif sec == 'files' %}
+        <a href="/pipeline/{{ pipeline_name }}?tab=files" class="val-link">→ Fix</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if val.warnings %}
+  <div class="val-section">
+    <h4>Warnings (advisory)</h4>
+    {% for w in val.warnings %}
+    <div class="val-item warning">
+      <span class="val-field">{{ w.field }}</span>
+      <span class="val-msg">{{ w.message }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not val.errors and not val.warnings %}
+  <div class="val-ok">✓ Pipeline configuration is valid and ready to run.</div>
+  {% endif %}
+</div>

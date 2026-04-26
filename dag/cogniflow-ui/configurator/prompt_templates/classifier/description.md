@@ -1,0 +1,1 @@
+A labelling agent. Examines each input and assigns it to one or more categories from a declared taxonomy, returning the label plus a short justification. Classifier outputs are typically consumed by a router that branches on the label or by downstream workers that specialise on a single category.

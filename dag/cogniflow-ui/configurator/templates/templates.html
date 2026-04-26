@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Templates — Cogniflow Configurator{% endblock %}
+
+{% block sidebar_pipelines %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Pipeline Templates</h1>
+</div>
+<p class="muted">Whole-pipeline starter bundles under <code>{{ settings.templates_dir }}</code>. For per-agent-type starter prompts, see <a href="/prompt-templates">Prompt Templates</a>.</p>
+
+{% if templates %}
+<div class="pipeline-grid">
+  {% for t in templates %}
+  <div class="pipeline-card">
+    <div class="card-header">
+      <span class="card-name">{{ t.display_name }}</span>
+      <span class="badge-mode {{ t.graph_mode }}">{{ t.graph_mode }}</span>
+    </div>
+    {% if t.description %}<p class="card-desc">{{ t.description }}</p>{% endif %}
+    <div class="card-meta">
+      {% if t.author %}<span>by {{ t.author }}</span>{% endif %}
+      {% for tag in t.tags[:4] %}<span class="label-chip">{{ tag }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No templates found in <code>{{ settings.templates_dir }}</code></p>
+  <p>Save any pipeline as a template to add it to the library.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block right_panel %}{% endblock %}

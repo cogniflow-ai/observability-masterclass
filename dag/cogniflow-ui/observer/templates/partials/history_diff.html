@@ -1,0 +1,23 @@
+<div class="hv-diff">
+  <header class="hv-diff-head">
+    <span class="hv-diff-title">
+      Diff
+      <span class="hv-diff-ver hv-diff-ver-a">{{ diff.a_meta }}</span>
+      <span class="hv-diff-arrow">→</span>
+      <span class="hv-diff-ver hv-diff-ver-b">{{ diff.b_meta }}</span>
+    </span>
+    <span class="hv-diff-path">{{ logical }}</span>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm"
+            onclick="document.getElementById('history-diff-container').innerHTML=''">
+      ✕ Close diff
+    </button>
+  </header>
+
+  {% if not diff.ok %}
+    <div class="hv-file-note">{{ diff.error }}</div>
+  {% else %}
+    <pre class="hv-diff-body">{% for line in diff.lines %}<span class="{{ line.cls }}">{{ line.text }}</span>
+{% endfor %}</pre>
+  {% endif %}
+</div>

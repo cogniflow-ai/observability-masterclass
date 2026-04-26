@@ -1,0 +1,84 @@
+{% set token_pct = ((token_est / context_limit) * 100) | round(1) %}
+{% set warn = token_pct > 20 %}
+
+<div class="prompt-editor">
+  <div class="prompt-header">
+    <div>
+      <strong>{{ agent_id }}</strong> /
+      <code>{{ filename }}</code>
+    </div>
+    <div class="prompt-stats">
+      <span class="{{ 'warn-text' if warn else '' }}">
+        ~{{ token_est }} tokens ({{ token_pct }}% of context limit)
+      </span>
+    </div>
+  </div>
+
+  {% if warn_tokens is defined and warn_tokens %}
+  <div class="warn-banner">⚠ Combined prompt tokens exceed 20% of MODEL_CONTEXT_LIMIT.</div>
+  {% endif %}
+  {% if save_ok is defined and save_ok %}
+  <div class="success-banner">✓ Saved.</div>
+  {% endif %}
+  {% if save_error is defined and save_error %}
+  <div class="error-banner">⚠ Not saved — {{ save_error }}</div>
+  {% endif %}
+
+  <div class="prompt-tabs">
+    <button class="subtab active" onclick="showPromptPane('edit')">Edit</button>
+    <button class="subtab" onclick="showPromptPane('preview')">Preview</button>
+    <button class="subtab" onclick="showPromptPane('history')">History ({{ versions | length }})</button>
+  </div>
+
+  <div id="prompt-pane-edit">
+    <form hx-post="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/{{ filename }}"
+          hx-target=".prompt-editor" hx-swap="outerHTML">
+      <div class="hv-editor-wrap"
+           data-logical="agents/{{ agent_id }}/{{ filename }}"
+           data-required-taglines="{{ (required_taglines or []) | join(',') }}">
+        <pre class="hv-editor-mirror" aria-hidden="true"><code></code></pre>
+        <textarea name="content" class="hv-editor"
+                  id="prompt-content-{{ agent_id }}"
+                  spellcheck="true">{{ content }}</textarea>
+      </div>
+      <div class="prompt-footer">
+        <input name="message" placeholder="Change notes (optional)" class="change-notes"/>
+        <span class="hv-validity" data-validity></span>
+        <button type="submit" class="btn-primary btn-sm">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="prompt-pane-preview" style="display:none">
+    <div class="markdown-preview" id="md-preview">{{ content }}</div>
+  </div>
+
+  <div id="prompt-pane-history" style="display:none">
+    {% if versions %}
+    <table class="data-table">
+      <thead><tr><th>Version</th><th>Saved</th><th>Notes</th><th>Actions</th></tr></thead>
+      <tbody>
+      {% for v in versions %}
+      <tr>
+        <td>v{{ v.version }}</td>
+        <td><small>{{ v.saved_at[:19].replace('T',' ') }}</small></td>
+        <td>{{ v.message or '—' }}</td>
+        <td>
+          <form hx-post="/pipeline/{{ pipeline_name }}/versions/restore"
+                hx-target=".prompt-editor" hx-swap="outerHTML" style="display:inline">
+            <input type="hidden" name="file_path" value="agents/{{ agent_id }}/{{ filename }}"/>
+            <input type="hidden" name="version"   value="{{ v.version }}"/>
+            <input type="hidden" name="message"   value="Restored from v{{ v.version }}"/>
+            <button type="submit" class="btn-ghost btn-sm"
+                    onclick="return confirm('Restore v{{ v.version }}?')">Restore</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state-sm">No saved versions yet.</p>
+    {% endif %}
+  </div>
+</div>

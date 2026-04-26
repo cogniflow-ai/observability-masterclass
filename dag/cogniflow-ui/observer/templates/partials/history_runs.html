@@ -1,0 +1,59 @@
+{% if not runs %}
+  <div class="hv-empty">
+    <div class="hv-empty-icon">📜</div>
+    <div>No runs yet</div>
+    <div class="hv-empty-sub">Run the pipeline at least once to see its history here.</div>
+  </div>
+{% else %}
+  {% for r in runs %}
+  <form class="hv-run-card"
+        hx-post="/pipelines/{{ name }}/history/{{ r.id }}/annotation"
+        hx-target="#history-runs-container"
+        hx-swap="innerHTML">
+    <div class="hv-run-top">
+      <span class="hv-run-status-dot hv-run-status-{{ r.status or 'unknown' }}"
+            title="{{ r.status or 'unknown' }}"></span>
+      <div class="hv-run-top-main">
+        <div class="hv-run-id" title="{{ r.id }}">{{ r.id }}</div>
+        <div class="hv-run-when">
+          {% if r.started %}{{ r.started }}{% else %}—{% endif %}
+        </div>
+      </div>
+      {% if r.label %}<span class="hv-run-label-tag" title="label">{{ r.label }}</span>{% endif %}
+    </div>
+
+    <div class="hv-run-stats">
+      {% if r.status %}
+        <span class="hv-run-stat"><b>{{ r.status }}</b></span>
+      {% endif %}
+      {% if r.duration_s is not none %}
+        <span class="hv-run-stat">⏱ {{ '%.1fs'|format(r.duration_s) }}</span>
+      {% endif %}
+      {% if r.agents_run is not none %}
+        <span class="hv-run-stat">🤖 {{ r.agents_run }}</span>
+      {% endif %}
+      {% if r.tokens and r.tokens.total_cost_usd %}
+        <span class="hv-run-stat">💰 ${{ '%.3f'|format(r.tokens.total_cost_usd) }}</span>
+      {% endif %}
+    </div>
+
+    <div class="hv-run-fields">
+      <input name="label" type="text"
+             class="hv-run-field"
+             placeholder="Label (e.g. baseline)"
+             value="{{ r.label }}">
+      <textarea name="comment"
+                class="hv-run-field hv-run-textarea"
+                rows="2"
+                placeholder="Notes…">{{ r.comment }}</textarea>
+    </div>
+
+    <div class="hv-run-foot">
+      <span class="hv-run-updated">
+        {% if r.annot_updated_at %}saved {{ r.annot_updated_at }}{% else %}— unsaved{% endif %}
+      </span>
+      <button type="submit" class="btn btn-sm btn-primary">Save</button>
+    </div>
+  </form>
+  {% endfor %}
+{% endif %}

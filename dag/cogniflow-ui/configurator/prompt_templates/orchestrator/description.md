@@ -1,0 +1,1 @@
+The coordination agent. Interprets the user's goal, decomposes it into subtasks, and shapes the context each downstream agent receives. Typically sits at the head of a pipeline and emits a plan or a structured context object; it does not itself perform the detailed work, but it sets the frame and the success criteria for the workers that follow.

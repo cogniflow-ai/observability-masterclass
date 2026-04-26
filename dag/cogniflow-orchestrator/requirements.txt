@@ -1,0 +1,20 @@
+# ── Cogniflow Multi-Agent Orchestrator — dependencies ──────────────────────
+#
+# Required
+# ─────────
+# networkx: DAG topological sort and cycle detection (IMP-07)
+networkx>=3.0
+
+# filelock: cross-thread safe writes to events.jsonl
+filelock>=3.12
+
+# ── Optional but strongly recommended ───────────────────────────────────────
+#
+# pytest + pytest-cov: run the test suite
+#   pip install pytest pytest-cov
+#
+# rich: pretty terminal output for pipeline_status()
+#   pip install rich
+#
+# ── Python version ───────────────────────────────────────────────────────────
+# Python 3.10 or later required (uses match statements, |= syntax, Path.walk)

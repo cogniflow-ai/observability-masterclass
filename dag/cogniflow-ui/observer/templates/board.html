@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ pl_name }} — {{ title }}{% endblock %}
+
+{% block navbar_extra %}
+<div class="navbar-pipeline">{{ pl_name }}</div>
+{% endblock %}
+
+{% block content %}
+<script>
+  window._pollMs = {{ poll_ms }};
+  window._initialState = "{{ initial_state }}";
+</script>
+
+<!-- Paused banner (shown by JS when pipeline state is paused) -->
+<div class="paused-banner" id="paused-banner" role="status" aria-live="polite">
+  <span class="paused-banner-icon">⏸</span>
+  <span class="paused-banner-text">
+    Pipeline <strong>{{ pl_name }}</strong> paused
+    <span class="paused-banner-sub">Press <em>Resume</em> to continue, or <em>Reset</em> to restart.</span>
+  </span>
+</div>
+
+<!-- Approval modal (shown by JS when agent awaits approval) -->
+<div class="approval-modal" id="approval-modal">
+  <div class="approval-modal-title">Agent is waiting for your approval</div>
+  <div class="approval-modal-preview" style="display:none"></div>
+  <span class="approval-modal-toggle" onclick="toggleModalPreview()">Show more ▼</span>
+  <button class="btn btn-sm" onclick="hideApprovalModal()">Dismiss</button>
+</div>
+
+<div class="container" style="padding-top:20px; padding-bottom:40px">
+
+  <!-- Controls -->
+  <div class="pipeline-controls">
+    <a class="btn btn-sm" href="/">← All pipelines</a>
+    <span style="font-size:13px; font-weight:600; color:var(--txt)">{{ pl_name }}</span>
+    <div class="pipeline-controls-spacer"></div>
+    {% if versioning %}
+    <a class="btn btn-sm" href="/pipelines/{{ name }}/history"
+       title="Browse run history, compare file versions, edit current files">
+      🗂 History & versions
+    </a>
+    {% endif %}
+    <button class="btn btn-sm btn-primary" id="reset-btn"
+            onclick="resetPipeline('{{ name }}')"
+            title="Clear status, events, outputs and context so the pipeline can be re-run from scratch">
+      ↻ Reset
+    </button>
+    <button class="btn btn-sm btn-green" id="start-btn"
+            data-state="{{ initial_state }}"
+            onclick="startPipeline('{{ name }}')"
+            title="Writes .command.json to start the pipeline via the launcher">
+      ▶ Start Pipeline
+    </button>
+    <button class="btn btn-sm" id="pause-btn"
+            onclick="pausePipeline('{{ name }}')"
+            title="Ask the pipeline to pause at the end of the current layer">
+      ⏸ Pause
+    </button>
+    <button class="btn btn-sm btn-red" id="stop-btn"
+            onclick="stopPipeline('{{ name }}')"
+            title="Writes .command.json to stop the pipeline via the launcher">
+      ■ Stop
+    </button>
+  </div>
+
+  <!-- Complete banner -->
+  <div class="complete-banner" id="complete-banner">
+    <span>✓ Pipeline complete — all agents finished.</span>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm" onclick="manualRefresh('{{ name }}')">↻ Refresh</button>
+  </div>
+
+  <!-- DAG view (collapsible) -->
+  <div class="dag-panel">
+    <span class="dag-state-banner" id="dag-state-banner" aria-live="polite"></span>
+    <details open>
+      <summary>Pipeline DAG</summary>
+      <div id="dag-container">{{ dag_svg | safe }}</div>
+    </details>
+  </div>
+
+  <div class="board-layout">
+    <!-- Left: summary + cards -->
+    <div>
+      <!-- Summary strip -->
+      <div id="summary-container">
+        {% include "partials/summary.html" %}
+      </div>
+
+      <!-- Agent cards (HTMX polling) -->
+      <div id="cards-poller"
+           hx-get="/pipelines/{{ name }}/cards"
+           hx-trigger="every {{ poll_ms }}ms"
+           hx-target="#cards-container"
+           hx-swap="innerHTML">
+      </div>
+      <div id="cards-container">
+        {% include "partials/cards.html" %}
+      </div>
+
+      <!-- Agent detail panel -->
+      <div id="detail-container"></div>
+    </div>
+
+    <!-- Right: event stream -->
+    <div>
+      <div class="events-panel">
+        <div class="events-header">
+          <span style="font-weight:600">Event Stream</span>
+        </div>
+        <div class="events-scroll" id="events-scroll">
+          <!-- HTMX polling for events -->
+          <div id="events-poller"
+               hx-get="/pipelines/{{ name }}/events"
+               hx-trigger="every {{ poll_ms }}ms"
+               hx-target="#events-container"
+               hx-swap="innerHTML">
+          </div>
+          <div id="events-container">
+            {% include "partials/events.html" %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

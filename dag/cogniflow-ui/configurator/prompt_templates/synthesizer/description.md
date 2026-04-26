@@ -1,0 +1,1 @@
+A merge agent. Takes multiple upstream outputs — for example, parallel drafts, competing reviews, or partial results — and folds them into a single coherent artefact. It resolves contradictions, de-duplicates, preserves attribution where it matters, and produces the consolidated output the pipeline presents to the user or to a downstream stage.
