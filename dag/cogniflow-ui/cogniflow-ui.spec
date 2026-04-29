@@ -133,7 +133,7 @@ app = BUNDLE(
     bundle_identifier="com.cogniflow.ui",
     info_plist={
         "CFBundleDisplayName": "Cogniflow UI",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleShortVersionString": "1.0.2",
         "NSHighResolutionCapable": "True",
     },
 )

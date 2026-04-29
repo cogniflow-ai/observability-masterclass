@@ -31,7 +31,7 @@
       <div class="form-group">
         <label>Type</label>
         <select name="agent_type">
-          {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+          {% for t in settings.agent_types %}
           <option value="{{ t }}" {% if (agent or {}).get('type') == t %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>

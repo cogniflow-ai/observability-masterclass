@@ -63,6 +63,8 @@
     }
   ],
   "updated_at": "2026-04-23T17:44:13.895953+00:00",
+  "_dir": "C:\\Users\\edatlab\\Cowork\\Projects\\Course Material Production\\courses\\observability-masterclass\\code\\cogniflow-orchestrator_v1\\pipelines\\07-newspaper-ai-article",
+  "_running": false,
   "graph_orientation": "vertical",
   "graph_mode": "dag",
   "validate_taglines": true,

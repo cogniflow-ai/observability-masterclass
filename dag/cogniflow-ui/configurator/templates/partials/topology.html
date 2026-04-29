@@ -1,4 +1,5 @@
-{% set agents = pipeline.get('agents', []) if pipeline else [] %}
+{% set raw_agents = pipeline.get('agents', []) if pipeline else [] %}
+{% set agents = raw_agents | selectattr('id') | sort(attribute='id') | list %}
 {% set edges = pipeline.get('edges', []) if pipeline else [] %}
 {% set gmode = pipeline.get('graph_mode', 'dag') if pipeline else 'dag' %}
 
@@ -53,7 +54,7 @@
         <a class="btn-ghost btn-sm"
            href="/pipeline/{{ pipeline_name }}?tab=agents"
            title="Edit prompts and metadata">Prompts</a>
-        {% if claude_bin_found %}
+        {% if claude_bin_found and enable_specialize %}
         <form class="specialize-form"
               data-agent-id="{{ a.get('id') }}"
               hx-post="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}/specialize"
@@ -144,7 +145,7 @@
         <div class="form-group">
           <label>Type</label>
           <select name="agent_type">
-            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+            {% for t in settings.agent_types %}
             <option value="{{ t }}">{{ t }}</option>
             {% endfor %}
           </select>
@@ -187,7 +188,10 @@
       <div class="form-grid">
         <div class="form-group">
           <label>Agent ID</label>
-          <input id="edit-field-id" disabled class="disabled-input"/>
+          <input id="edit-field-id" name="new_agent_id"
+                 pattern="\d{3}_[a-z0-9_]+"
+                 title="Format: NNN_name (e.g. 001_researcher)"/>
+          <small>Renaming moves <code>agents/&lt;id&gt;/</code> on disk and rewrites all <code>depends_on</code> and edge references.</small>
         </div>
         <div class="form-group">
           <label>Display name</label>
@@ -196,7 +200,7 @@
         <div class="form-group">
           <label>Type</label>
           <select name="agent_type" id="edit-field-type">
-            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
+            {% for t in settings.agent_types %}
             <option value="{{ t }}">{{ t }}</option>
             {% endfor %}
           </select>

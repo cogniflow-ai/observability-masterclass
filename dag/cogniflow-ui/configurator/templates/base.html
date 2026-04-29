@@ -59,7 +59,9 @@
         {% block sidebar_pipelines %}{% endblock %}
       </div>
       <div class="sidebar-bottom">
+        {% if settings.enable_pipeline_templates %}
         <a href="/templates" class="sidebar-link">📋 Pipeline Templates</a>
+        {% endif %}
         <a href="/prompt-templates" class="sidebar-link">🧩 Prompt Templates</a>
       </div>
     </div>

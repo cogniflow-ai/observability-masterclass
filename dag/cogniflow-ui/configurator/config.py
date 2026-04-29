@@ -96,6 +96,16 @@ class Settings:
         self.meta_prompt_timeout_s: int = int(
             _get(cfg, "meta_prompt_timeout_s", 300)
         )
+        enable_specialize_raw = _get(cfg, "enable_specialize", True)
+        self.enable_specialize: bool = (
+            enable_specialize_raw if isinstance(enable_specialize_raw, bool)
+            else str(enable_specialize_raw).lower() == "true"
+        )
+        enable_pipeline_templates_raw = _get(cfg, "enable_pipeline_templates", True)
+        self.enable_pipeline_templates: bool = (
+            enable_pipeline_templates_raw if isinstance(enable_pipeline_templates_raw, bool)
+            else str(enable_pipeline_templates_raw).lower() == "true"
+        )
         self.default_taglines_system: list[str] = _parse_tag_list(
             _get(cfg, "default_taglines_system",
                  ["role", "responsibilities", "guardrails"]))
@@ -103,6 +113,13 @@ class Settings:
             _get(cfg, "default_taglines_task",
                  ["description", "goals", "context", "input",
                   "output", "format", "guardrails"]))
+        # Agent types offered in the New/Add Agent modals and the agent
+        # detail panel's Type select. Editable per UI version via config.json
+        # (or the AGENT_TYPES env var, as a CSV). Order is preserved in the UI.
+        self.agent_types: list[str] = _parse_tag_list(
+            _get(cfg, "agent_types",
+                 ["orchestrator", "worker", "reviewer", "synthesizer",
+                  "router", "classifier", "validator", "summarizer"]))
 
     @property
     def cfg_trash_dir(self) -> Path:

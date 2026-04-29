@@ -71,13 +71,17 @@
       <div class="form-grid">
         <div class="form-group">
           <label>Directory name <span class="req">*</span></label>
-          <input type="text" name="name" required placeholder="my-pipeline"
-                 pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, hyphens, underscores"/>
-          <small>Lowercase alphanumeric, hyphens, underscores</small>
+          <input type="text" id="new-pipeline-dir-name" name="name" required
+                 placeholder="my-pipeline"
+                 pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, hyphens, underscores"
+                 oninput="onNewPipelineDirInput(this)"/>
+          <small>Lowercase alphanumeric, hyphens, underscores. Spaces are converted to hyphens.</small>
         </div>
         <div class="form-group">
           <label>Display name</label>
-          <input type="text" name="display_name" placeholder="My Pipeline"/>
+          <input type="text" id="new-pipeline-display-name" name="display_name"
+                 placeholder="My Pipeline"
+                 oninput="this.dataset.touched='1'"/>
         </div>
         <div class="form-group full">
           <label>Description</label>
@@ -94,6 +98,7 @@
           <label>Category</label>
           <input type="text" name="category" placeholder="research, analysis…"/>
         </div>
+        {% if settings.enable_pipeline_templates %}
         <div class="form-group full">
           <label>Start from template</label>
           <select name="template_name">
@@ -103,6 +108,7 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn-ghost" onclick="hideModal('modal-new-pipeline')">Cancel</button>
@@ -111,6 +117,27 @@
     </form>
   </div>
 </div>
+
+<script>
+function onNewPipelineDirInput(el) {
+  const caret = el.selectionStart;
+  const cleaned = el.value
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_-]/g, '');
+  if (cleaned !== el.value) {
+    el.value = cleaned;
+    try { el.setSelectionRange(caret, caret); } catch (_) {}
+  }
+  const dn = document.getElementById('new-pipeline-display-name');
+  if (dn && !dn.dataset.touched) {
+    dn.value = cleaned
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim();
+  }
+}
+</script>
 {% endblock %}
 
 {% block right_panel %}{% endblock %}

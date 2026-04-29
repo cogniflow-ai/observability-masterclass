@@ -2,6 +2,7 @@
 {% block title %}Prompt Templates — Cogniflow Configurator{% endblock %}
 
 {% block sidebar_pipelines %}
+{% if enable_specialize %}
 <div class="sidebar-label">Meta</div>
 <a href="/prompt-templates?selected=_meta"
    class="sidebar-link{% if is_meta %} active{% endif %}">
@@ -9,6 +10,9 @@
 </a>
 
 <div class="sidebar-label" style="margin-top:14px">Agent Types</div>
+{% else %}
+<div class="sidebar-label">Agent Types</div>
+{% endif %}
 {% for t in types %}
 <a href="/prompt-templates?selected={{ t.type }}"
    class="sidebar-link{% if t.type == selected and not is_meta %} active{% endif %}">
@@ -34,7 +38,7 @@
   <h2>⚙ Meta Prompts</h2>
 </div>
 <p class="muted">These prompts drive the <strong>one-shot specialization</strong> that tailors a type's generic templates for a newly-created agent instance. Edit with care — every new agent created with "Auto-generate" goes through these two prompts.</p>
-{% if not claude_bin_found %}
+{% if enable_specialize and not claude_bin_found %}
 <div class="warn-banner">⚠ <code>claude</code> CLI not found. Auto-generate is disabled until it is installed or <code>claude_bin</code> is set in <code>config.json</code>.</div>
 {% endif %}
 

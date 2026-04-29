@@ -8,7 +8,10 @@
   "app_title": "Cogniflow Configurator",
   "prompt_templates_dir": "",
   "claude_bin": "",
+  "enable_specialize": false,
+  "enable_pipeline_templates": false,
   "meta_prompt_timeout_s": 300,
   "default_taglines_system": ["role", "responsibilities", "guardrails"],
-  "default_taglines_task":   ["description", "goals", "context", "input", "output", "format", "guardrails"]
+  "default_taglines_task":   ["description", "goals", "context", "input", "output", "format", "guardrails"],
+  "agent_types": ["worker", "reviewer", "synthesizer", "classifier", "validator", "summarizer"]
 }

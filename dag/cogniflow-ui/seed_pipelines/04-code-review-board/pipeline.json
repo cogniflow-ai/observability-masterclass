@@ -33,6 +33,8 @@
     }
   ],
   "updated_at": "2026-04-23T17:44:37.620075+00:00",
+  "_dir": "C:\\Users\\edatlab\\Cowork\\Projects\\Course Material Production\\courses\\observability-masterclass\\code\\cogniflow-orchestrator_v1\\pipelines\\04-code-review-board",
+  "_running": false,
   "graph_orientation": "vertical",
   "validated_taglines_system": [],
   "graph_mode": "dag",

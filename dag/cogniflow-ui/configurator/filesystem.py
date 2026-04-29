@@ -4,6 +4,7 @@ All reads and writes go through here. No other module touches the disk directly.
 """
 from __future__ import annotations
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,7 +105,7 @@ def get_pipeline(name: str) -> dict | None:
         data = json.loads(pj.read_text(encoding="utf-8"))
     except Exception:
         return None
-    data["_dir"] = str(d)
+    data["_dir"] = name
     data["_running"] = _is_running(d)
     return data
 
@@ -193,20 +194,48 @@ def _apply_template(pipeline_dir: Path, template_name: str, base_data: dict):
         atomic_write_json(pipeline_dir / "pipeline.json", base_data)
 
 
-def delete_pipeline(name: str, trash: bool = True) -> bool:
+def delete_pipeline(name: str, trash: bool = True) -> tuple[bool, str]:
+    """Delete (or trash) a pipeline directory atomically.
+
+    Returns (True, "ok") on success, (False, reason) on any failure. Uses
+    Path.rename (an atomic OS-level move) instead of shutil.move's
+    copy-then-delete fallback, so a partial failure can never leave the
+    pipeline in a half-deleted state (e.g. agents/ removed while
+    pipeline.json remains, which happens on Windows when another process
+    holds pipeline.json open during shutil.rmtree's bottom-up walk)."""
     d = settings.pipelines_root / name
     if not d.exists():
-        return False
+        return False, f"Pipeline '{name}' does not exist on disk."
     if trash:
         td = settings.cfg_trash_dir
-        td.mkdir(parents=True, exist_ok=True)
+        try:
+            td.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return False, f"Could not create trash directory '{td}': {e}"
         dest = td / name
         if dest.exists():
-            shutil.rmtree(dest)
-        shutil.move(str(d), str(dest))
+            try:
+                shutil.rmtree(dest)
+            except OSError as e:
+                return False, (
+                    f"Could not clear existing trash entry '{dest}': {e}. "
+                    f"Remove it manually and retry.")
+        try:
+            d.rename(dest)
+        except OSError as e:
+            return False, (
+                f"Could not move pipeline to trash: {e}. "
+                f"Close any process (orchestrator, editor, file watcher) "
+                f"holding files in '{d}' open and try again.")
     else:
-        shutil.rmtree(d)
-    return True
+        try:
+            shutil.rmtree(d)
+        except OSError as e:
+            return False, (
+                f"Could not delete pipeline directory: {e}. "
+                f"Close any process (orchestrator, editor, file watcher) "
+                f"holding files in '{d}' open and try again.")
+    return True, "ok"
 
 
 # ── pipeline.json read/write ──────────────────────────────────────────────────
@@ -351,6 +380,62 @@ def _read_prompt_template(agent_type: str, filename: str) -> str:
         except Exception:
             return ""
     return ""
+
+
+_AGENT_ID_RE = re.compile(r"^\d{3}_[a-z0-9_]+$")
+
+
+def rename_agent(pipeline_name: str, old_id: str,
+                 new_id: str) -> tuple[bool, str]:
+    """Rename an agent: move its workspace directory, rewrite its `id` in
+    pipeline.json, and update every `depends_on` and edge that referenced
+    it. No-op when old_id == new_id. Validates new_id format and uniqueness
+    before any filesystem mutation."""
+    if not new_id or new_id == old_id:
+        return True, "ok"
+    if not _AGENT_ID_RE.match(new_id):
+        return False, (f"New agent id '{new_id}' must match NNN_name "
+                       f"(three digits, underscore, lowercase letters/digits/underscores).")
+    d = settings.pipelines_root / pipeline_name
+    pj = d / "pipeline.json"
+    if not pj.exists():
+        return False, "pipeline.json not found"
+    data = json.loads(pj.read_text(encoding="utf-8"))
+    agents = data.get("agents", [])
+    ids = {a.get("id") for a in agents if isinstance(a, dict)}
+    if new_id in ids:
+        return False, f"Agent id '{new_id}' already exists"
+    if old_id not in ids:
+        return False, f"Agent '{old_id}' not found"
+
+    old_dir = d / "agents" / old_id
+    new_dir = d / "agents" / new_id
+    if new_dir.exists():
+        return False, f"Target directory 'agents/{new_id}' already exists"
+    if old_dir.exists():
+        old_dir.rename(new_dir)
+
+    for a in agents:
+        if not isinstance(a, dict):
+            continue
+        if a.get("id") == old_id:
+            a["id"] = new_id
+        deps = a.get("depends_on")
+        if isinstance(deps, list):
+            a["depends_on"] = [new_id if x == old_id else x for x in deps]
+    for e in data.get("edges", []):
+        if not isinstance(e, dict):
+            continue
+        if e.get("from") == old_id:
+            e["from"] = new_id
+        if e.get("to") == old_id:
+            e["to"] = new_id
+
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    old = pj.read_text(encoding="utf-8")
+    ver.save_version(d, "pipeline.json", old, f"Rename agent {old_id} -> {new_id}")
+    atomic_write_json(pj, data)
+    return True, "ok"
 
 
 def update_agent(pipeline_name: str, agent_id: str, updates: dict) -> tuple[bool, str]:
@@ -660,15 +745,20 @@ PROMPT_TEMPLATE_FILES = ("01_system.md", "02_prompt.md")
 def list_prompt_templates() -> list[dict]:
     """Return one entry per agent-type directory under prompt_templates_dir.
     The reserved 'meta' directory is excluded — it holds the specialization
-    meta-prompts, not an agent type."""
+    meta-prompts, not an agent type. Directories whose name is not in
+    settings.agent_types are also excluded, so removing a type from config
+    immediately hides any leftover folder from the UI."""
     root = settings.prompt_templates_dir
     if not root.exists():
         return []
+    allowed = set(settings.agent_types)
     result = []
     for d in sorted(root.iterdir()):
         if not d.is_dir() or d.name.startswith("."):
             continue
         if d.name == META_DIR_NAME:
+            continue
+        if d.name not in allowed:
             continue
         files = []
         for fname in PROMPT_TEMPLATE_FILES:

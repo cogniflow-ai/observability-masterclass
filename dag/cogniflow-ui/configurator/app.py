@@ -114,6 +114,7 @@ async def pipeline_view(request: Request, name: str, tab: str = "graph",
         "all_pipelines": fs.list_pipelines(),
         "json_content": json_content,
         "claude_bin_found": bool(settings.claude_bin),
+        "enable_specialize": settings.enable_specialize,
         "orientation": data.get("graph_orientation", "vertical"),
         "global_taglines_system": global_default_taglines("system"),
         "global_taglines_task":   global_default_taglines("task"),
@@ -148,8 +149,9 @@ async def create_pipeline(
             "templates": fs.list_templates(),
             "error": f"Pipeline '{name}' already exists",
         })
+    effective_template = template_name if settings.enable_pipeline_templates else ""
     fs.create_pipeline(name, display_name, description, graph_mode,
-                       category, template_name or None)
+                       category, effective_template or None)
     return RedirectResponse(f"/pipeline/{name}", status_code=303)
 
 
@@ -173,7 +175,13 @@ async def delete_pipeline(
             '<div class="error-banner">Cannot delete a running pipeline.</div>',
             status_code=400,
         )
-    fs.delete_pipeline(name, trash=trash.lower() != "false")
+    ok, msg = fs.delete_pipeline(name, trash=trash.lower() != "false")
+    if not ok:
+        return HTMLResponse(
+            f'<div class="error-banner">Failed to delete pipeline '
+            f'<strong>{name}</strong>: {msg}</div>',
+            status_code=500,
+        )
     return RedirectResponse("/configurator", status_code=303)
 
 
@@ -275,10 +283,18 @@ async def topology_update_agent(
     depends_on: Annotated[str, Form()] = "",
     timeout_s: Annotated[str, Form()] = "",
     require_approval: Annotated[str, Form()] = "false",
+    new_agent_id: Annotated[str, Form()] = "",
 ):
+    effective_id = agent_id
+    new_id = (new_agent_id or "").strip()
+    if new_id and new_id != agent_id:
+        ok, msg = fs.rename_agent(name, agent_id, new_id)
+        if not ok:
+            return await _topology_partial(request, name, error=msg)
+        effective_id = new_id
     deps = [d.strip() for d in depends_on.split(",") if d.strip()]
     updates = {
-        "name": agent_name.strip() or agent_id,
+        "name": agent_name.strip() or effective_id,
         "type": agent_type,
         "category": category,
         "description": description,
@@ -290,7 +306,7 @@ async def topology_update_agent(
             updates["timeout_s"] = int(timeout_s)
         except ValueError:
             pass
-    ok, msg = fs.update_agent(name, agent_id, updates)
+    ok, msg = fs.update_agent(name, effective_id, updates)
     return await _topology_partial(request, name, error=None if ok else msg)
 
 
@@ -307,6 +323,7 @@ async def _topology_partial(request: Request, name: str, error: str | None):
         "svg": svg,
         "error": error,
         "claude_bin_found": bool(settings.claude_bin),
+        "enable_specialize": settings.enable_specialize,
         "agent_ids": [a["id"] for a in (data or {}).get("agents", [])
                       if isinstance(a, dict)],
     })
@@ -397,6 +414,38 @@ async def graph_json_save(
 # §9  Agent detail / metadata
 # ─────────────────────────────────────────────────────────────────────────────
 
+@router.post("/pipeline/{name}/agent/new", response_class=HTMLResponse)
+async def agent_create(
+    request: Request, name: str,
+    agent_id: Annotated[str, Form()],
+    agent_name: Annotated[str, Form()] = "",
+    agent_type: Annotated[str, Form()] = "worker",
+    category: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    depends_on: Annotated[str, Form()] = "",
+    template_agent: Annotated[str, Form()] = "",
+):
+    deps = [d.strip() for d in depends_on.split(",") if d.strip()]
+    agent = {
+        "id": agent_id.strip(),
+        "name": agent_name.strip() or agent_id.strip(),
+        "type": agent_type,
+        "category": category,
+        "description": description,
+        "depends_on": deps,
+        "require_approval": False,
+    }
+    ok, msg = fs.add_agent(name, agent)
+    if ok:
+        return RedirectResponse(
+            f"/pipeline/{name}?tab=agents", status_code=303)
+    return _t(request, "partials/agent_detail.html", {
+        "pipeline_name": name, "agent": agent,
+        "agent_id": agent_id, "all_agent_ids": [],
+        "labels_data": {}, "error": msg,
+    })
+
+
 @router.get("/pipeline/{name}/agent/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(request: Request, name: str, agent_id: str):
     agent = fs.get_agent(name, agent_id)
@@ -453,38 +502,6 @@ async def agent_save_meta(
         "labels_data": fs.get_labels(name),
         "save_ok": ok,
         "error": None if ok else msg,
-    })
-
-
-@router.post("/pipeline/{name}/agent/new", response_class=HTMLResponse)
-async def agent_create(
-    request: Request, name: str,
-    agent_id: Annotated[str, Form()],
-    agent_name: Annotated[str, Form()] = "",
-    agent_type: Annotated[str, Form()] = "worker",
-    category: Annotated[str, Form()] = "",
-    description: Annotated[str, Form()] = "",
-    depends_on: Annotated[str, Form()] = "",
-    template_agent: Annotated[str, Form()] = "",
-):
-    deps = [d.strip() for d in depends_on.split(",") if d.strip()]
-    agent = {
-        "id": agent_id.strip(),
-        "name": agent_name.strip() or agent_id.strip(),
-        "type": agent_type,
-        "category": category,
-        "description": description,
-        "depends_on": deps,
-        "require_approval": False,
-    }
-    ok, msg = fs.add_agent(name, agent)
-    if ok:
-        return RedirectResponse(
-            f"/pipeline/{name}?tab=agents", status_code=303)
-    return _t(request, "partials/agent_detail.html", {
-        "pipeline_name": name, "agent": agent,
-        "agent_id": agent_id, "all_agent_ids": [],
-        "labels_data": {}, "error": msg,
     })
 
 
@@ -814,6 +831,8 @@ async def settings_validate_taglines_save(
 
 @router.get("/templates", response_class=HTMLResponse)
 async def templates_list(request: Request):
+    if not settings.enable_pipeline_templates:
+        return RedirectResponse("/configurator", status_code=303)
     return _t(request, "templates.html", {
         "templates": fs.list_templates(),
     })
@@ -857,6 +876,9 @@ async def download_svg(name: str):
 async def prompt_templates_list(request: Request, selected: str = ""):
     types = fs.list_prompt_templates()
     # `selected` can be "_meta" (the meta-prompt editor) or any regular type.
+    # When the Specialize feature is disabled, the meta editor is not reachable.
+    if selected == "_meta" and not settings.enable_specialize:
+        return RedirectResponse("/prompt-templates", status_code=303)
     if not selected and types:
         selected = types[0]["type"]
     is_meta = selected == "_meta"
@@ -889,6 +911,7 @@ async def prompt_templates_list(request: Request, selected: str = ""):
         "type_description": type_description,
         "templates_dir": str(settings.prompt_templates_dir),
         "claude_bin_found": bool(settings.claude_bin),
+        "enable_specialize": settings.enable_specialize,
     })
 
 
@@ -909,6 +932,7 @@ async def prompt_template_new(
             "type_description": "",
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
+            "enable_specialize": settings.enable_specialize,
             "error": msg,
         })
     return RedirectResponse(f"/prompt-templates?selected={type_name}",
@@ -954,6 +978,7 @@ async def prompt_template_meta_save(
             "type_description": "",
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
+            "enable_specialize": settings.enable_specialize,
             "error": f"{filename}: {tag_error}",
         })
     fs.write_meta_prompt(filename, content, message)
@@ -1009,6 +1034,7 @@ async def prompt_template_save(
             "type_description": fs.read_type_description(agent_type),
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
+            "enable_specialize": settings.enable_specialize,
             "error": f"{filename}: {tag_error}",
         })
     fs.write_prompt_template(agent_type, filename, content, message)
