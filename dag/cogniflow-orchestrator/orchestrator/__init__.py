@@ -8,7 +8,7 @@ from .exceptions import (
     AgentTimeoutError, TokenBudgetError, CycleDetectedError, RouterError,
 )
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 __all__ = [
     "run_pipeline", "pipeline_status", "watch_events",
     "OrchestratorConfig",
