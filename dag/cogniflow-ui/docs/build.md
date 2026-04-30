@@ -53,7 +53,7 @@ The single field a student typically changes is `orchestrator_root` in the
   "app_version": "1.0.0",
   "host": "127.0.0.1",
   "port": 8000,
-  "orchestrator_root": "../cogniflow-orchestrator"
+  "orchestrator_root": "../dag/cogniflow-orchestrator"
 }
 ```
 
@@ -77,7 +77,7 @@ venv/Scripts/python -m pip install pyinstaller
 venv/Scripts/python -m PyInstaller --noconfirm --clean cogniflow-ui.spec
 ```
 
-Output: `dag/cogniflow-ui/dist/cogniflow-ui/cogniflow-ui.exe` (~35 MB folder).
+Output: `dist/cogniflow-ui/cogniflow-ui.exe` (~35 MB folder).
 
 Before testing or shipping, copy `config.json` next to the exe:
 
@@ -92,7 +92,7 @@ opens at `http://127.0.0.1:8000`. Closing the console stops the server.
 To produce a distributable zip:
 
 ```
-powershell Compress-Archive -Path dist/cogniflow-ui/* -DestinationPath dist/Cogniflow-UI-DAG-Windows.zip
+powershell Compress-Archive -Path dist/cogniflow-ui/* -DestinationPath dist/Cogniflow-UI-Windows.zip
 ```
 
 ## 4. Building locally on macOS
@@ -115,34 +115,33 @@ launcher is preserved):
 
 ```
 cd dist
-ditto -c -k --sequesterRsrc --keepParent "Cogniflow UI.app" "Cogniflow-UI-DAG-macOS.zip"
+ditto -c -k --sequesterRsrc --keepParent "Cogniflow UI.app" "Cogniflow-UI-macOS.zip"
 ```
 
 ## 5. Building remotely via GitHub Actions
 
-Two workflows are provided under `<repo-root>/.github/workflows/`:
+Two workflows are provided under `.github/workflows/`:
 
-* `build-dag-windows.yml` — runs on `windows-latest`, produces a Windows zip.
-* `build-dag-macos.yml` — runs on `macos-14` (Apple-silicon), produces a `.app` zip.
+* `build-windows.yml` — runs on `windows-latest`, produces a Windows zip.
+* `build-macos.yml` — runs on `macos-14` (Apple-silicon), produces a `.app` zip.
 
 Both trigger on:
 
-* **Push of a `dag-vX.Y.Z` tag** — the build is uploaded as a workflow artifact
+* **Push of a `vX.Y.Z` tag** — the build is uploaded as a workflow artifact
   AND attached to a GitHub Release.
 * **Manual dispatch** from the Actions tab — the build is uploaded as a
   workflow artifact only.
 
-Tag-and-release flow (run from the repo root):
+Tag-and-release flow:
 
 ```
-git tag dag-v1.0.0
-git push origin dag-v1.0.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-A few minutes later, both `cogniflow-ui-dag-windows` and
-`cogniflow-ui-dag-macos` zips are attached to the `dag-v1.0.0` release
-page on GitHub. Students download either zip, unpack it, and
-double-click the launcher.
+A few minutes later, both `cogniflow-ui-windows` and `cogniflow-ui-macos`
+zips are attached to the v1.0.0 release page on GitHub. Students download
+either zip, unpack it, and double-click the launcher.
 
 ## 6. macOS Gatekeeper — first-launch UX
 
@@ -158,18 +157,18 @@ The student must:
 After this once-per-app step, normal double-click works.
 
 To eliminate the warning entirely, set up a paid Apple Developer ID and
-add a code-signing + notarization step to `build-dag-macos.yml`. The
-TODO inside that workflow file lists the secrets you'd need to configure
+add a code-signing + notarization step to `build-macos.yml`. The TODO
+inside that workflow file lists the secrets you'd need to configure
 (`APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`).
 
 ## 7. Versioning a release
 
 When you ship a new release that includes updated bundled pipelines:
 
-1. Edit pipelines under `dag/cogniflow-ui/seed_pipelines/<name>/` as needed.
+1. Edit pipelines under `seed_pipelines/<name>/` as needed.
 2. Bump `app_version` in `dag/cogniflow-ui/config.json` (e.g. `1.0.0` → `1.1.0`).
-3. Commit, then `git tag dag-v1.1.0 && git push origin dag-v1.1.0`.
-4. CI builds and attaches both binaries to the `dag-v1.1.0` Release.
+3. Commit, then `git tag v1.1.0 && git push origin v1.1.0`.
+4. CI builds and attaches both binaries to the v1.1.0 Release.
 5. On every student's next launch, the seeder sees their marker file at
    `1.0.0`, the bundle at `1.1.0`, and re-overlays the seed pipelines.
    Their custom (non-bundled) pipelines and runtime artefacts are

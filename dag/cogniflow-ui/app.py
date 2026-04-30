@@ -136,6 +136,22 @@ app.include_router(configurator_router)
 
 
 if __name__ == "__main__":
+    import threading
+    import time
+    import webbrowser
     import uvicorn
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    url = f"http://{HOST}:{PORT}"
+
+    def _open_browser_when_ready(delay_s: float = 1.5) -> None:
+        time.sleep(delay_s)
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as e:
+            print(f"[app] couldn't open browser automatically: {e}", flush=True)
+
+    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
+
     uvicorn.run("app:app", host=HOST, port=PORT, reload=True)

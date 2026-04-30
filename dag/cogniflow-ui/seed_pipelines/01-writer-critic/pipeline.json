@@ -17,7 +17,7 @@
       "description": "Reviews the draft: ratings and improvement list."
     }
   ],
-  "_dir": "C:\\Users\\edatlab\\Cowork\\Projects\\Course Material Production\\courses\\observability-masterclass\\code\\cogniflow-orchestrator_v1\\pipelines\\01-writer-critic",
+  "_dir": "01-writer-critic",
   "_running": false,
   "graph_orientation": "horizontal",
   "updated_at": "2026-04-25T09:25:15.504797+00:00",

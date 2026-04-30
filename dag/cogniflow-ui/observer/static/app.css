@@ -1004,6 +1004,8 @@ body:has(.paused-banner.visible) { padding-top: 58px; }
   white-space: inherit;
   word-break: inherit;
   display: block;
+  padding: 0;
+  margin: 0;
 }
 
 .hv-editor-wrap > .hv-editor {

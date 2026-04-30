@@ -45,7 +45,7 @@ dag/cogniflow-ui/
 ```
 
 For the full explanation of how seeding works and how every configuration field maps
-to a runtime behavior, see [`instruction.md`](instruction.md).
+to a runtime behavior, see [`docs/instruction.md`](docs/instruction.md).
 
 ## Quick start
 
@@ -92,14 +92,14 @@ dag/cogniflow-orchestrator/
 ```
 
 This separation is intentional: the UI bundle is read-only, the data folder is mutable,
-and they evolve independently. See [`instruction.md`](instruction.md) for the full
+and they evolve independently. See [`docs/instruction.md`](docs/instruction.md) for the full
 seeding lifecycle.
 
 ## Distribution
 
 For non-technical students the shipping form is:
 
-* `cogniflow-ui.exe` (Windows, built with PyInstaller — see [`building.md`](building.md))
+* `cogniflow-ui.exe` (Windows, built with PyInstaller — see [`docs/build.md`](docs/build.md))
 * `Cogniflow UI.app` (macOS, built via GitHub Actions on a `macos-14` runner)
 
 Both binaries read `config.json` from the folder *next to* the executable, so users
@@ -121,10 +121,10 @@ is pushed:
 
 Documentation is split by operation phase:
 
-* [`github.md`](github.md) — operational manual for everything GitHub: account
+* [`docs/github.md`](docs/github.md) — operational manual for everything GitHub: account
   and CLI setup, creating the repo, daily workflow, shipping releases, secrets,
   troubleshooting auth.
-* [`git-actions.md`](git-actions.md) — what the CI workflows actually do once
+* [`docs/git-actions.md`](docs/git-actions.md) — what the CI workflows actually do once
   triggered, with diagrams.
-* [`building.md`](building.md) — local PyInstaller mechanics and Gatekeeper
+* [`docs/build.md`](docs/build.md) — local PyInstaller mechanics and Gatekeeper
   notes for the macOS `.app`.
