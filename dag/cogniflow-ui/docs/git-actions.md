@@ -1,30 +1,12 @@
 # Releasing via GitHub Actions
 
-Walkthrough of how the two CI workflows under `<repo-root>/.github/workflows/`
-turn a `git tag` push into downloadable Windows and macOS builds on a
-GitHub Release page.
+Walkthrough of how the two CI workflows under `.github/workflows/` turn a
+`git tag` push into downloadable Windows and macOS builds on a GitHub
+Release page.
 
 This document is for whoever is shipping a release. For how to *build
-locally* without GitHub, see [`building.md`](building.md). For how the
+locally* without GitHub, see [`build.md`](build.md). For how the
 running app behaves at startup, see [`instruction.md`](instruction.md).
-
-## 0. Where this UI lives in the repo
-
-The repo holds **two flavors** of the Cogniflow stack:
-
-```
-observability-masterclass/                     <- repo root
-├── .github/workflows/
-│   ├── build-dag-windows.yml                  <- triggered by dag-v*.*.* tags
-│   └── build-dag-macos.yml                    <- triggered by dag-v*.*.* tags
-├── dag/                                       <- this flavor — DAG model
-│   └── cogniflow-ui/                          <- you are here
-└── cyclic/                                    <- the cyclic flavor (separate workflows once UI exists)
-```
-
-This means: the workflow files are at the **repo root**, not next to
-this UI. Tag conventions are scoped per flavor (`dag-v...` vs
-`cyclic-v...`) so the two flavors version independently.
 
 ---
 
@@ -42,37 +24,34 @@ up only when you give them a signal.
 
 ## 2. What a "tag" actually is
 
-A git tag is just a label you stick on a specific commit. `dag-v1.0.0`
-is a conventional name meaning "this commit is release 1.0.0 of the DAG
-flavor". The label gets pushed to the remote alongside your code:
+A git tag is just a label you stick on a specific commit. `v1.0.0` is a
+conventional name meaning "this commit is release 1.0.0". The label
+gets pushed to the remote alongside your code:
 
 ```
-git tag dag-v1.0.0          # stick a label on the current commit (locally)
-git push origin dag-v1.0.0  # tell GitHub about the label
+git tag v1.0.0          # stick a label on the current commit (locally)
+git push origin v1.0.0  # tell GitHub about the label
 ```
 
-Both DAG workflows are configured to react to **pushed tags that match
-`dag-v*.*.*`** (top of `build-dag-windows.yml` and `build-dag-macos.yml`):
+Both workflows are configured to react to **pushed tags that match
+`v*.*.*`** (lines 8–9 of `build-windows.yml` and `build-macos.yml`):
 
 ```yaml
 on:
   push:
     tags:
-      - "dag-v*.*.*"
+      - "v*.*.*"
 ```
 
-This is the signal that wakes up the robots. (Cyclic-flavor builds —
-once the cyclic UI exists — will have their own workflows reacting to
-`cyclic-v*.*.*`, so the two flavors never interfere with each other's
-releases.)
+This is the signal that wakes up the robots.
 
-## 3. What happens when you push a `dag-v1.0.0` tag
+## 3. What happens when you push a `v1.0.0` tag
 
-The moment GitHub sees the new tag arrive, it triggers **both** DAG
+The moment GitHub sees the new tag arrive, it triggers **both**
 workflows in parallel:
 
 ```
-                  git push origin dag-v1.0.0
+                  git push origin v1.0.0
                           |
                           v
               +----------------------+
@@ -85,19 +64,18 @@ workflows in parallel:
      spawned by GitHub        spawned by GitHub
               |                      |
         clone the repo          clone the repo
-        cd dag/cogniflow-ui     cd dag/cogniflow-ui
         install Python          install Python
         pip install -r ...      pip install -r ...
         pyinstaller spec        pyinstaller spec
         zip the build           zip the .app (ditto)
               |                      |
               v                      v
-   Cogniflow-UI-DAG-          Cogniflow-UI-DAG-
-   Windows.zip                macOS.zip
+       Cogniflow-UI-           Cogniflow-UI-
+       Windows.zip             macOS.zip
               |                      |
               +----------+-----------+
                          v
-              GitHub Release page for dag-v1.0.0
+              GitHub Release page for v1.0.0
               with both zips attached for download
 ```
 
@@ -110,13 +88,13 @@ Each takes roughly 3–8 minutes. They do not interfere with each other.
 GitHub creates a page like this automatically:
 
 ```
-https://github.com/<your-username>/observability-masterclass/releases/tag/dag-v1.0.0
+https://github.com/<your-username>/<your-repo>/releases/tag/v1.0.0
 
-Cogniflow UI dag-v1.0.0
+Cogniflow UI v1.0.0
 -----------------------------------------
 Assets:
-  [zip] Cogniflow-UI-DAG-Windows.zip   35 MB
-  [zip] Cogniflow-UI-DAG-macOS.zip     42 MB
+  [zip] Cogniflow-UI-Windows.zip   35 MB
+  [zip] Cogniflow-UI-macOS.zip     42 MB
   [src] Source code (zip)
   [src] Source code (tar.gz)
 ```
@@ -126,16 +104,37 @@ launcher, and the browser opens to the app.
 
 ## 5. Concrete prerequisites
 
-The `observability-masterclass/` repo root (two levels up from this
-folder) must be a git repository hosted on GitHub before any of this
-works. See [`github.md`](github.md) for the one-time setup; the short
-version is `gh repo create` from the repo root, then `git push`.
+The `dag/cogniflow-ui/` folder needs to be a git repository hosted on
+GitHub before any of this works. One-time setup:
 
-After that initial push, open the repo on github.com and click the
-**Actions** tab. You should see the workflows listed:
+### 5.1 Create a repo on github.com
 
-* "Build DAG UI - Windows"
-* "Build DAG UI - macOS"
+Either public (free, unlimited CI minutes) or private (free with limits:
+2000 minutes/month, plenty for this project).
+
+### 5.2 Initialize the local folder and push it
+
+From inside `dag/cogniflow-ui/`:
+
+```
+git init
+git add .
+git commit -m "Initial Cogniflow UI v1"
+git branch -M main
+git remote add origin https://github.com/<you>/<repo>.git
+git push -u origin main
+```
+
+The `.gitignore` in this folder already excludes `venv/`, `build/`,
+`dist/`, and Python caches, so none of that gets pushed.
+
+### 5.3 Verify the workflows are live
+
+Open the repo on github.com, click the **Actions** tab. You should see
+the two workflows listed:
+
+* "Build Windows .exe"
+* "Build macOS .app"
 
 They will not have run yet because no tag has been pushed and no manual
 trigger has happened.
@@ -146,25 +145,25 @@ After the one-time setup, every release looks like this:
 
 ```
 # 1. Update the version in dag/cogniflow-ui/config.json (e.g. 1.0.0 -> 1.1.0)
-# 2. Edit any dag/cogniflow-ui/seed_pipelines/ as needed
-# 3. Commit your changes (from the repo root)
+# 2. Edit any seed_pipelines/ as needed
+# 3. Commit your changes
 
-git add dag/cogniflow-ui/config.json dag/cogniflow-ui/seed_pipelines/
-git commit -m "DAG UI v1.1.0 - updated writer prompt"
+git add config.json seed_pipelines/
+git commit -m "Bump to v1.1.0 - updated writer prompt"
 git push
 
 # 4. Tag the commit and push the tag
 
-git tag dag-v1.1.0
-git push origin dag-v1.1.0
+git tag v1.1.0
+git push origin v1.1.0
 
 # 5. Wait roughly 5 minutes, then check:
-#    https://github.com/<you>/observability-masterclass/releases
+#    https://github.com/<you>/<repo>/releases
 ```
 
-When the workflows finish, both zips appear on the `dag-v1.1.0` release
-page automatically. You can share that one URL with your students; each
-one clicks the platform that matches their OS.
+When the workflows finish, both zips appear on the v1.1.0 release page
+automatically. You can share that one URL with your students; each one
+clicks the platform that matches their OS.
 
 Each subsequent release is the same three commands: bump version,
 commit-push, tag-push.
@@ -209,7 +208,7 @@ installed the orchestrator in a non-default location).
 By default the macOS `.app` is unsigned. Students see Gatekeeper's
 "developer cannot be verified" warning on first launch and must
 right-click → Open. Details and the workaround instructions to give
-students live in [`building.md`](building.md) §6.
+students live in [`build.md`](build.md) §6.
 
 If you want to eliminate the warning entirely, you need an Apple
 Developer ID ($99/year) and a notarization step. The TODO comment at
@@ -237,7 +236,7 @@ per month at zero cost.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Pushed a `dag-v1.0.0` tag, nothing happened | The workflow file was added to the repo *after* the tag, or the tag was pushed without the workflow file present in that commit. Or the tag prefix didn't match (must be `dag-v...`). | Make sure `.github/workflows/build-dag-*.yml` is part of the same branch the tag points at, and the tag uses the `dag-v` prefix. Re-tag if needed. |
+| Pushed a `v1.0.0` tag, nothing happened | The workflow file was added to the repo *after* the tag, or the tag was pushed without the workflow file present in that commit. | Make sure `.github/workflows/*.yml` is part of the same branch the tag points at. Re-tag if needed. |
 | Workflow runs, but Release page is empty | The `softprops/action-gh-release` step ran but the repo's permissions are too restrictive. | Repo Settings → Actions → General → Workflow permissions → set to "Read and write permissions". |
 | Build fails on the Mac runner with "no module named …" | A Python module that PyInstaller missed in static analysis. | Add it to `hiddenimports` in `cogniflow-ui.spec` and re-tag. |
 | Build succeeds, students still see old behavior after upgrading | They have the new build but the same `app_version` as before, so the seeder skipped on launch. | Bump `app_version` in `config.json` whenever you ship updated bundled pipelines (see `instruction.md` §1.4). |

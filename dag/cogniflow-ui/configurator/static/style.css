@@ -615,6 +615,8 @@ html.right-collapsed   .right-panel            { border-left: 1px solid var(--bo
   white-space: inherit;
   word-break: inherit;
   display: block;
+  padding: 0;
+  margin: 0;
 }
 .hv-editor-wrap > .hv-editor {
   position: relative;

@@ -7,9 +7,9 @@ shipping releases, troubleshooting auth, and managing secrets.
 This document covers how to **operate on GitHub**. Adjacent docs cover
 the other phases:
 
-* [`readme.md`](readme.md) — high-level orientation to `dag/cogniflow-ui/`.
+* [`../readme.md`](../readme.md) — high-level orientation to `dag/cogniflow-ui/`.
 * [`instruction.md`](instruction.md) — runtime behaviour, seeding, configs.
-* [`building.md`](building.md) — local PyInstaller builds.
+* [`build.md`](build.md) — local PyInstaller builds.
 * [`git-actions.md`](git-actions.md) — what the CI workflows do once
   triggered.
 
@@ -109,13 +109,13 @@ to download binaries, and you get unlimited CI builds.
 observability-masterclass
 ```
 
-The natural URL students will share:
-`github.com/<you>/observability-masterclass`.
+This matches your existing folder structure
+(`courses/observability-masterclass/`) and is the natural URL students
+will share: `github.com/<you>/observability-masterclass`.
 
 ### 2.3 Create the repo (one command)
 
-From the **repo root** (the `observability-masterclass/` folder that
-contains `dag/` and `cyclic/` — two levels above this UI):
+From inside `dag/cogniflow-ui/`:
 
 ```
 gh repo create observability-masterclass --public --source=. --remote=origin
@@ -142,58 +142,58 @@ Should print two lines pointing at the new repo URL.
 ```
 git init                    # if not already a git repo
 git add .
-git commit -m "Initial commit - DAG UI + orchestrator, cyclic orchestrator"
+git commit -m "Initial Cogniflow UI v1.0.0"
 git branch -M main
 git push -u origin main
 ```
 
-The `.gitignore` at the repo root excludes `venv/`, `build/`, `dist/`,
-caches, `.env`, and editor noise — those will not be uploaded.
+The `.gitignore` in this folder excludes `venv/`, `build/`, `dist/`,
+caches, and editor noise — those will not be uploaded.
 
 ### 2.5 Verify on github.com
 
 Open `https://github.com/<you>/observability-masterclass` in a browser.
-You should see the source tree, with the top-level `readme.md` rendered
-on the main page. Click the **Actions** tab. You should see the two
-workflow definitions: "Build DAG UI - Windows" and "Build DAG UI -
-macOS". They have not run yet because no tag has been pushed.
+You should see the source tree, with `readme.md` rendered on the main
+page. Click the **Actions** tab. You should see the two workflow
+definitions: "Build Windows .exe" and "Build macOS .app". They have not
+run yet because no tag has been pushed.
 
 ---
 
-## 3. Repository layout
+## 3. Repository scope: what to put in this single repo
 
-The repo is organized by **execution flavor** at the top level so each
-flavor is a self-contained reference implementation:
+The repo can host more than just `dag/cogniflow-ui/`. A reasonable layout
+for the whole observability masterclass is:
 
 ```
-observability-masterclass/                     <- repo root
-├── readme.md                                  <- entry point for the whole repo
-├── .github/workflows/
-│   ├── build-dag-windows.yml
-│   └── build-dag-macos.yml
-├── dag/
-│   ├── readme.md
-│   ├── cogniflow-ui/                          <- you are here, when reading these docs
-│   └── cogniflow-orchestrator/                <- DAG orchestrator (v1)
-└── cyclic/
-    ├── readme.md
-    ├── cogniflow-ui/                          <- placeholder, UI in development
-    └── cogniflow-orchestrator/                <- cyclic orchestrator (v3.5)
+observability-masterclass/
+├── readme.md                   <- entry point for the whole repo
+├── code/
+│   ├── dag/cogniflow-ui/        <- the app (this folder)
+│   ├── dag/cogniflow-orchestrator/   <- frozen v1
+│   ├── cogniflow-observer_v1/       <- frozen v1
+│   └── cogniflow-configurator_v1/   <- frozen v1
+└── slides/, exercises/, etc.   <- other course material as you grow
 ```
 
-Why flavor-at-top:
+Two practical notes:
 
-* Each flavor is a self-contained "lab kit" — students cloning the repo
-  see DAG and cyclic side-by-side, not hidden behind a `git checkout`.
-* Tag conventions are scoped per flavor (`dag-v1.0.0`, `cyclic-v1.0.0`),
-  so the two flavors version independently.
-* Diffs between `dag/` and `cyclic/` are git diffs — the educational
-  comparison is at filesystem level.
+* **Frozen v1 folders** (`dag/cogniflow-orchestrator/`,
+  `cogniflow-observer_v1/`, `cogniflow-configurator_v1/`) can stay in
+  the repo as historical references. They are read-only — no
+  modifications planned. Including them in the same repo means the
+  Releases page can also offer the orchestrator binary alongside the UI
+  binary.
+* **CI workflows** under `dag/cogniflow-ui/.github/workflows/` will not
+  trigger if the repo root is one level up. GitHub looks for workflows
+  at `<repo-root>/.github/workflows/`. If you adopt the layout above,
+  move the `.github/` folder to the repo root and adjust the workflow
+  `working-directory` to `code/dag/cogniflow-ui`. Section 9.4 below has
+  the exact change.
 
-Workflows live at the repo root (`<repo-root>/.github/workflows/`) and
-each one declares `working-directory: dag/cogniflow-ui` (or
-`cyclic/cogniflow-ui` once that exists) at the job level so the build
-runs in the right subfolder.
+For a first push, the simplest path is to make `dag/cogniflow-ui/` the
+repo root (your current setup). Restructure later when you add slides or
+other content.
 
 ---
 
@@ -272,20 +272,16 @@ Versioning rule of thumb (semver):
 
 ### 5.3 Commit and tag
 
-Run from the repo root:
-
 ```
-git add dag/cogniflow-ui/config.json dag/cogniflow-ui/seed_pipelines/
-git commit -m "DAG UI v1.1.0 - add 16-data-pipeline, refresh writer prompt"
+git add config.json seed_pipelines/
+git commit -m "Release v1.1.0 - add 16-data-pipeline, refresh writer prompt"
 git push
 
-git tag dag-v1.1.0
-git push origin dag-v1.1.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
-The tag push is the trigger. Both DAG CI workflows start within seconds.
-(The `dag-` prefix scopes the trigger — cyclic releases will use
-`cyclic-vX.Y.Z` tags and reach their own workflows.)
+The tag push is the trigger. Both CI workflows start within seconds.
 
 ### 5.4 Watch the build
 
@@ -315,13 +311,13 @@ gh run view --web
 Once both runs finish:
 
 ```
-gh release view dag-v1.1.0
+gh release view v1.1.0
 # or open in browser:
-gh release view dag-v1.1.0 --web
+gh release view v1.1.0 --web
 ```
 
-You should see both `Cogniflow-UI-DAG-Windows.zip` and
-`Cogniflow-UI-DAG-macOS.zip` listed under Assets.
+You should see both `Cogniflow-UI-Windows.zip` and
+`Cogniflow-UI-macOS.zip` listed under Assets.
 
 The permanent student-facing URL is:
 
@@ -330,16 +326,12 @@ https://github.com/<you>/observability-masterclass/releases/latest
 ```
 
 This URL always redirects to the most recent release — share it once,
-update it never. (Note: `releases/latest` returns whichever release is
-newest across all flavors. If you ship `cyclic-v0.1.0` after
-`dag-v1.0.0`, students hitting `latest` will see the cyclic one. If
-that's not what you want, share a flavor-pinned URL like
-`releases/tag/dag-v1.1.0` instead.)
+update it never.
 
 ### 5.6 Edit release notes after the fact
 
 ```
-gh release edit dag-v1.1.0 --notes "Manual release notes here."
+gh release edit v1.1.0 --notes "Manual release notes here."
 ```
 
 Or edit on the website.
@@ -500,25 +492,18 @@ Three possible causes:
 3. The workflow ran but `softprops/action-gh-release` failed silently.
    Check `gh run view --web` for the failed step.
 
-### 9.4 Adding the cyclic UI workflows later
+### 9.4 Need to move workflows because the repo grew
 
-When the cyclic UI lands in `cyclic/cogniflow-ui/`, copy
-`build-dag-windows.yml` and `build-dag-macos.yml` to
-`build-cyclic-windows.yml` and `build-cyclic-macos.yml`, then in each:
+If you restructure to put `dag/cogniflow-ui/` underneath
+`code/`, do the following:
 
-1. Change `working-directory: dag/cogniflow-ui` →
-   `working-directory: cyclic/cogniflow-ui`.
-2. Change the tag trigger pattern from `dag-v*.*.*` →
-   `cyclic-v*.*.*`.
-3. Change all `Cogniflow-UI-DAG-...` zip names →
-   `Cogniflow-UI-Cyclic-...`.
-4. Change all artifact upload paths from
-   `dag/cogniflow-ui/dist/...` → `cyclic/cogniflow-ui/dist/...`.
-5. Change the `if: startsWith(github.ref, 'refs/tags/dag-v')` guard
-   to `'refs/tags/cyclic-v'`.
-
-The two flavors then build independently, gated by their own tag
-prefixes.
+1. Move `dag/cogniflow-ui/.github/` to repo root: now at
+   `<repo>/.github/workflows/*.yml`.
+2. In each workflow YAML, change `working-directory: .` to
+   `working-directory: code/dag/cogniflow-ui`.
+3. In the spec-file path arguments, prefix with the new path or `cd`
+   into the directory before running PyInstaller.
+4. Update the `.gitignore` paths if needed (e.g. `code/dag/cogniflow-ui/dist/`).
 
 ### 9.5 Accidentally committed a secret
 

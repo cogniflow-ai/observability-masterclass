@@ -1,7 +1,7 @@
 {
   "id": "10-software-factory",
   "name": "Software Factory",
-  "description": "Spec → Architect → Developer → Tester → Documenter. Developer, tester, and documenter run with --dangerously-skip-permissions and cwd=todo/ so Claude writes files directly into the todo/ folder.",
+  "description": "Spec \u2192 Architect \u2192 Developer \u2192 Tester \u2192 Documenter. Developer, tester, and documenter run with --dangerously-skip-permissions and cwd=todo/ so Claude writes files directly into the todo/ folder.",
   "agents": [
     {
       "id": "001_spec",
@@ -37,7 +37,7 @@
       "description": "Writes README.md directly to todo/."
     }
   ],
-  "_dir": "C:\\Users\\edatlab\\Cowork\\Projects\\Course Material Production\\courses\\observability-masterclass\\code\\cogniflow-orchestrator_v1\\pipelines\\10-software-factory",
+  "_dir": "10-software-factory",
   "_running": false,
   "graph_mode": "dag",
   "graph_orientation": "horizontal",
