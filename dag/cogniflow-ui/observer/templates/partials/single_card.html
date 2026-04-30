@@ -1,4 +1,7 @@
-<div class="agent-card {% if card.needs_approval %}needs-approval{% endif %} {% if card.status == 'running' %}pulse{% endif %}"
+<div class="agent-card
+            {% if card.needs_approval %}needs-approval{% endif %}
+            {% if card.needs_feedback %}needs-feedback{% endif %}
+            {% if card.status == 'running' %}pulse{% endif %}"
      id="card-{{ card.id }}"
      data-agent-id="{{ card.id }}"
      data-output-preview=""
@@ -15,6 +18,84 @@
   {% endif %}
 
   <div class="card-status">{{ card.status_label }}</div>
+
+  <!-- Validation chips: input · output · struct -->
+  {% if card.chip_input.state != 'none' or card.chip_output.state != 'none' or card.chip_struct.state == 'fail' %}
+  <div class="chips-row" onclick="event.stopPropagation()">
+    {% if card.chip_input.state != 'none' %}
+      {% set ok = card.chip_input.state == 'ok' %}
+      <button class="chip {% if ok %}chip-ok{% else %}chip-bad{% endif %}"
+              {% if not ok %}onclick="loadViolations('{{ name }}', '{{ card.id }}', 'input')"{% endif %}
+              title="{{ card.chip_input.violations | join('; ') if card.chip_input.violations else 'Input schema OK' }}">
+        {% if ok %}✓{% else %}✗{% endif %} input
+      </button>
+    {% endif %}
+    {% if card.chip_output.state != 'none' %}
+      {% set ok = card.chip_output.state == 'ok' %}
+      <button class="chip {% if ok %}chip-ok{% else %}chip-bad{% endif %}"
+              {% if not ok %}onclick="loadViolations('{{ name }}', '{{ card.id }}', 'output')"{% endif %}
+              title="{{ card.chip_output.violations | join('; ') if card.chip_output.violations else 'Output schema OK' }}">
+        {% if ok %}✓{% else %}✗{% endif %} output
+      </button>
+    {% endif %}
+    {% if card.chip_struct.state == 'fail' %}
+      <button class="chip chip-bad"
+              onclick="loadViolations('{{ name }}', '{{ card.id }}', 'struct')"
+              title="Structural validation failed for this agent">
+        ✗ struct
+      </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Routing preview chips -->
+  {% if card.approval_routes %}
+  <div class="chips-row" onclick="event.stopPropagation()">
+    {% if card.approval_routes.on_reject %}
+      <span class="chip chip-route" title="Rejection routes feedback to {{ card.approval_routes.on_reject.target }}">
+        On reject → {{ card.approval_routes.on_reject.target }}
+      </span>
+    {% endif %}
+    {% if card.approval_routes.on_approve %}
+      <span class="chip chip-route" title="Approval routes a task to {{ card.approval_routes.on_approve.target }}">
+        On approve → {{ card.approval_routes.on_approve.target }}
+      </span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Secret counters -->
+  {% if card.secret_outbound or card.secret_inbound or card.secret_leaked or card.secret_missing %}
+  <div class="chips-row" onclick="event.stopPropagation()">
+    {% if card.secret_outbound %}
+      <span class="chip chip-secret" title="Vault values substituted into outbound prompts">
+        🔑 outbound: {{ card.secret_outbound }}
+      </span>
+    {% endif %}
+    {% if card.secret_inbound %}
+      <span class="chip chip-secret" title="Vault values rehydrated into inbound responses">
+        🔑 inbound: {{ card.secret_inbound }}
+      </span>
+    {% endif %}
+    {% if card.secret_missing %}
+      <span class="chip chip-warn" title="Markers with no matching vault entry">
+        ? missing: {{ card.secret_missing }}
+      </span>
+    {% endif %}
+    {% if card.secret_leaked %}
+      <span class="chip chip-bad" title="Leaked: {{ card.secret_leaked_names | join(', ') }}">
+        ⚠ leaked: {{ card.secret_leaked }}
+      </span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Awaiting-feedback badge -->
+  {% if card.needs_feedback %}
+  <div class="awaiting-feedback-badge" onclick="event.stopPropagation()">
+    ⏳ Rejected — waiting for downstream agent to respond
+  </div>
+  {% endif %}
 
   <!-- Metrics -->
   <div class="card-metrics" style="margin-top:8px">
@@ -53,12 +134,29 @@
   {% if card.needs_approval %}
   <div class="approval-section" onclick="event.stopPropagation()">
     <div class="approval-label">⏸ This agent is waiting for your approval</div>
+
+    {% if card.approval_routes.on_approve or card.approval_routes.on_reject %}
+    <div class="approval-routing-summary">
+      {% if card.approval_routes.on_reject %}
+        <div>Rejection will post <strong>{{ card.approval_routes.on_reject.include | join(' + ') }}</strong>
+             to <code>{{ card.approval_routes.on_reject.target }}</code> as a
+             feedback message.</div>
+      {% endif %}
+      {% if card.approval_routes.on_approve %}
+        <div>Approval will post <strong>{{ card.approval_routes.on_approve.include | join(' + ') }}</strong>
+             to <code>{{ card.approval_routes.on_approve.target }}</code> as a task.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <div class="approval-btns">
       <form hx-post="/pipelines/{{ name }}/agents/{{ card.id }}/approve"
             hx-target="#card-{{ card.id }}"
             hx-swap="outerHTML"
             style="display:inline">
         <input type="hidden" name="action" value="approve">
+        <input type="text" name="note" placeholder="Optional approval note…"
+               autocomplete="off" class="approval-note-input">
         <button type="submit" class="btn btn-green btn-sm">✓ Approve</button>
       </form>
       <button class="btn btn-red btn-sm" id="reject-btn-{{ card.id }}"
@@ -67,9 +165,11 @@
     <div class="rejection-note" id="reject-note-{{ card.id }}">
       <form hx-post="/pipelines/{{ name }}/agents/{{ card.id }}/approve"
             hx-target="#card-{{ card.id }}"
-            hx-swap="outerHTML">
+            hx-swap="outerHTML"
+            onsubmit="return validateRejectNote(this);">
         <input type="hidden" name="action" value="reject">
-        <input type="text" name="note" placeholder="Optional rejection note…"
+        <input type="text" name="note" required minlength="1"
+               placeholder="Why are you rejecting? (required)"
                autocomplete="off">
         <button type="submit" class="btn btn-red btn-sm">Confirm Reject</button>
       </form>

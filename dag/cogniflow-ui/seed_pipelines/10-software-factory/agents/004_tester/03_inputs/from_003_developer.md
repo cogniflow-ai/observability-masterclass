@@ -1,1 +1,0 @@
-Wrote `todo.py` implementing the architect's design.

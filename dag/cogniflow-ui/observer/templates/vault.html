@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Vault — {{ title }}{% endblock %}
+
+{% block navbar_extra %}
+<div class="navbar-pipeline">Vault</div>
+{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top:20px; padding-bottom:40px">
+  <div class="page-header">
+    <h1>Secrets Vault</h1>
+    <p>
+      Read-only view of <code>{{ vault_path }}</code>. Values are never
+      shown — vault CRUD lives in the <strong>Configurator</strong>.
+    </p>
+  </div>
+
+  {% if not vault_available %}
+  <div class="warn-banner">
+    <div class="warn-banner-title">
+      <span>ℹ</span>
+      <span>No vault database found.</span>
+    </div>
+    <div class="warn-banner-help">
+      Create one from the Configurator's <em>Vault</em> panel, then refresh.
+    </div>
+  </div>
+  {% elif not secrets %}
+  <div class="empty-state">No secrets registered yet.</div>
+  {% else %}
+  <div class="vault-layout">
+    <div class="vault-list">
+      <table class="vault-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Tags</th>
+            <th>Origin</th>
+            <th>Updated</th>
+            <th class="r">Used in</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in secrets %}
+          <tr class="vault-row" onclick="loadVaultDetail('{{ s.name }}', this)">
+            <td><code>{{ s.name }}</code></td>
+            <td>{{ s.description or '—' }}</td>
+            <td>
+              {% for t in s.tags %}<span class="chip chip-route">{{ t }}</span>{% endfor %}
+              {% if not s.tags %}—{% endif %}
+            </td>
+            <td>{{ s.origin_pipeline or '—' }}</td>
+            <td class="ts">{{ s.updated_at }}</td>
+            <td class="r">{{ s.used_in_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="vault-detail" id="vault-detail-container"></div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  function loadVaultDetail(name, rowEl) {
+    document.querySelectorAll('.vault-row').forEach(r => r.classList.remove('selected'));
+    if (rowEl) rowEl.classList.add('selected');
+    htmx.ajax('GET', '/observer/vault/secrets/' + encodeURIComponent(name), {
+      target: '#vault-detail-container', swap: 'innerHTML'
+    });
+  }
+  function closeVaultDetail() {
+    const el = document.getElementById('vault-detail-container');
+    if (el) el.innerHTML = '';
+    document.querySelectorAll('.vault-row').forEach(r => r.classList.remove('selected'));
+  }
+</script>
+{% endblock %}

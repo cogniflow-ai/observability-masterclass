@@ -1,5 +1,5 @@
 {
-  "orchestrator_root": "../../cogniflow-orchestrator",
+  "orchestrator_root": "../cogniflow-orchestrator-v3.5",
   "poll_interval_ms": 2000,
   "model_context_limit": 180000,
   "event_tail_lines": 50,

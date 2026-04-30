@@ -1,12 +1,17 @@
 """
-Cogniflow Orchestrator — DAG resolution.
+Cogniflow Orchestrator v3.0 — DAG loader.
 
-Uses networkx for graph operations so the topological sort,
-cycle detection, and layer extraction are correct, tested,
-and O(V+E) — not the O(n²) grep loops of the Bash version.
+Unchanged from v2.1.0.  Builds a directed acyclic graph from
+pipeline.json (depends_on format) and performs topological layering
+for parallel execution.
+
+v3.0 adds is_cyclic_pipeline() for mode detection.
 """
-
 from __future__ import annotations
+
+import json
+from collections import deque
+from pathlib import Path
 from typing import Any
 
 try:
@@ -18,107 +23,83 @@ except ImportError:
 from .exceptions import CycleDetectedError
 
 
-AgentDef = dict[str, Any]   # One entry from pipeline.json["agents"]
+def load_pipeline(pipeline_dir: Path) -> dict[str, Any]:
+    """Load and return the parsed pipeline.json."""
+    path = pipeline_dir / "pipeline.json"
+    if not path.exists():
+        raise FileNotFoundError(f"No pipeline.json found in {pipeline_dir}")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
-def build_graph(agents: list[AgentDef]) -> "nx.DiGraph":
+def is_cyclic_pipeline(spec: dict[str, Any]) -> bool:
     """
-    Build a directed graph from the pipeline agent list.
-    Edge A → B means B depends on A (A must run before B).
+    Return True if the pipeline spec contains cyclic edges (feedback or peer).
+    Used by core.py for mode detection (REQ-EXEC-001).
     """
-    if not _HAS_NX:
-        raise ImportError(
-            "networkx is required: pip install networkx"
+    for edge in spec.get("edges", []):
+        if edge.get("type") in ("feedback", "peer"):
+            return True
+    # Also check if any depends_on forms a cycle (shouldn't, but be safe)
+    return False
+
+
+def build_dag(spec: dict[str, Any]) -> list[list[str]]:
+    """
+    Build a layered execution plan from depends_on structure.
+
+    Returns a list of layers; each layer is a list of agent IDs that
+    can run in parallel.  Raises CycleDetectedError if a cycle exists.
+    """
+    agents = {a["id"]: a for a in spec["agents"]}
+    deps   = {a["id"]: list(a.get("depends_on", [])) for a in spec["agents"]}
+
+    if _HAS_NX:
+        return _nx_layers(agents, deps)
+    return _kahn_layers(agents, deps)
+
+
+def _nx_layers(agents: dict, deps: dict) -> list[list[str]]:
+    G = nx.DiGraph()
+    G.add_nodes_from(agents)
+    for aid, dep_list in deps.items():
+        for dep in dep_list:
+            G.add_edge(dep, aid)
+    if not nx.is_directed_acyclic_graph(G):
+        raise CycleDetectedError(
+            "pipeline.json contains a cycle.  Use feedback/peer edges for "
+            "intentional cycles, or remove the circular depends_on dependency."
         )
-    g = nx.DiGraph()
-    for agent in agents:
-        g.add_node(agent["id"], **{k: v for k, v in agent.items() if k != "id"})
-    for agent in agents:
-        for dep in agent.get("depends_on", []):
-            g.add_edge(dep, agent["id"])
-    return g
+    return list(nx.topological_generations(G))
 
 
-def assert_no_cycle(g: "nx.DiGraph") -> None:
-    """
-    Raise CycleDetectedError if the graph contains a cycle.
-    networkx.find_cycle raises NetworkXNoCycle if the graph is a DAG.
-    """
-    try:
-        cycle_edges = nx.find_cycle(g, orientation="original")
-        cycle_nodes = [e[0] for e in cycle_edges] + [cycle_edges[-1][1]]
-        raise CycleDetectedError(cycle_nodes)
-    except nx.NetworkXNoCycle:
-        pass  # Graph is acyclic — good
+def _kahn_layers(agents: dict, deps: dict) -> list[list[str]]:
+    """Pure-Python Kahn's algorithm — used when networkx is not installed."""
+    in_degree: dict[str, int] = {aid: 0 for aid in agents}
+    successors: dict[str, list[str]] = {aid: [] for aid in agents}
 
+    for aid, dep_list in deps.items():
+        for dep in dep_list:
+            successors[dep].append(aid)
+            in_degree[aid] += 1
 
-def compute_layers(g: "nx.DiGraph") -> list[list[str]]:
-    """
-    Return agents grouped into execution layers using Kahn's algorithm
-    (implemented here via networkx's topological_generations).
-
-    Agents in the same layer have no ordering dependency and can
-    run in parallel.  Layers are ordered: layer[0] runs first.
-
-    Example:
-        001, 002, 003 → all in layer 0 (parallel)
-        004           → layer 1 (fan-in, waits for layer 0)
-        005, 006      → layer 2 (parallel)
-        007           → layer 3 (fan-in, final)
-    """
-    assert_no_cycle(g)
-    layers = []
-    for generation in nx.topological_generations(g):
-        layers.append(sorted(generation))   # sorted for deterministic order
-    return layers
-
-
-def get_dependencies(g: "nx.DiGraph", agent_id: str) -> list[str]:
-    """Return the direct predecessors of agent_id (its depends_on list)."""
-    return list(g.predecessors(agent_id))
-
-
-def get_dependents(g: "nx.DiGraph", agent_id: str) -> list[str]:
-    """Return agents that directly depend on agent_id."""
-    return list(g.successors(agent_id))
-
-
-def all_ancestors(g: "nx.DiGraph", agent_id: str) -> set[str]:
-    """Return all transitive upstream agents of agent_id."""
-    return nx.ancestors(g, agent_id)
-
-
-def all_descendants(g: "nx.DiGraph", agent_id: str) -> set[str]:
-    """Return all transitive downstream agents of agent_id."""
-    return nx.descendants(g, agent_id)
-
-
-# ── Fallback (no networkx) ────────────────────────────────────────────────────
-
-def compute_layers_fallback(agents: list[AgentDef]) -> list[list[str]]:
-    """
-    Pure-Python Kahn's algorithm used when networkx is not installed.
-    O(n²) but correct for small pipelines (< 50 agents).
-    """
-    id_to_deps: dict[str, set[str]] = {
-        a["id"]: set(a.get("depends_on", [])) for a in agents
-    }
-    placed: set[str] = set()
+    queue = deque(aid for aid, d in in_degree.items() if d == 0)
     layers: list[list[str]] = []
-    remaining = set(id_to_deps.keys())
+    visited = 0
 
-    while remaining:
-        layer = sorted(
-            aid for aid in remaining
-            if id_to_deps[aid].issubset(placed)
-        )
-        if not layer:
-            cycle = sorted(remaining)
-            raise CycleDetectedError(cycle)
+    while queue:
+        # Collect all zero-in-degree nodes into one layer
+        layer = list(queue)
+        queue.clear()
         layers.append(layer)
-        placed.update(layer)
-        remaining -= set(layer)
+        visited += len(layer)
+        for aid in layer:
+            for succ in successors[aid]:
+                in_degree[succ] -= 1
+                if in_degree[succ] == 0:
+                    queue.append(succ)
 
+    if visited != len(agents):
+        raise CycleDetectedError(
+            "pipeline.json contains a cycle (Kahn detection).  Check depends_on."
+        )
     return layers

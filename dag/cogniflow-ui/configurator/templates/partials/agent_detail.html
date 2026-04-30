@@ -19,6 +19,14 @@
        hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ agent_id }}/02_prompt.md"
        hx-target="#right-panel-content" hx-swap="innerHTML"
        class="btn-ghost btn-sm">Task Prompt</a>
+    <a href="#"
+       hx-get="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}/schema"
+       hx-target="#right-panel-content" hx-swap="innerHTML"
+       class="btn-ghost btn-sm">Schemas</a>
+    <a href="#"
+       hx-get="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}/approval"
+       hx-target="#right-panel-content" hx-swap="innerHTML"
+       class="btn-ghost btn-sm">Approval</a>
   </div>
 
   <form hx-post="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}"
@@ -31,7 +39,7 @@
       <div class="form-group">
         <label>Type</label>
         <select name="agent_type">
-          {% for t in settings.agent_types %}
+          {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
           <option value="{{ t }}" {% if (agent or {}).get('type') == t %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>

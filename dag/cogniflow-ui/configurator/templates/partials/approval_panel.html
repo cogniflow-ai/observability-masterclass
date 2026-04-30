@@ -1,0 +1,144 @@
+{# Per-agent approval / HITL panel.
+   Mirrors §2 of CONFIGURATOR_CHANGES_FOR_3_GAPS.md:
+     - requires_approval toggle
+     - on_reject  / on_approve sub-panels (target, include[], mode)
+   In DAG-mode pipelines the route panels are hidden and a tooltip
+   explains that rejection stops the run. #}
+
+{% if save_ok is defined and save_ok %}<div class="success-banner">✓ Approval settings saved.</div>{% endif %}
+{% if save_error is defined and save_error %}<div class="error-banner">⚠ {{ save_error }}</div>{% endif %}
+
+{% set ra      = agent_cfg.get('requires_approval', False) %}
+{% set routes  = agent_cfg.get('approval_routes', {}) or {} %}
+{% set on_rej  = routes.get('on_reject',  {}) or {} %}
+{% set on_app  = routes.get('on_approve', {}) or {} %}
+{% set rej_inc = on_rej.get('include', ['output', 'note']) %}
+{% set app_inc = on_app.get('include', ['output']) %}
+{% set is_cyclic = (pipeline.get('graph_mode', 'dag') == 'cyclic') %}
+
+<div class="approval-panel">
+  <h4 class="panel-h">Approval — <code>{{ agent_id }}</code></h4>
+
+  {% if downstream_badges %}
+  <div class="downstream-badges">
+    {% for b in downstream_badges %}
+    <span class="badge-info" title="Click to inspect that agent's Approval panel">
+      May receive {{ b.kind }} from
+      <a href="#" hx-get="/pipeline/{{ pipeline_name }}/agent/{{ b.gate }}/approval"
+         hx-target="#right-panel-content" hx-swap="innerHTML">
+        <code>{{ b.gate }}</code>
+      </a>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form hx-post="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}/approval"
+        hx-target="#right-panel-content" hx-swap="innerHTML"
+        class="approval-form">
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="requires_approval" value="true"
+             {% if ra %}checked{% endif %}
+             onchange="this.form.querySelectorAll('.approval-routes-block').forEach(b => b.style.display = this.checked ? '' : 'none')"/>
+      <span><strong>Requires approval</strong> before this agent's output flows downstream</span>
+    </label>
+
+    <div class="approval-routes-block" style="{% if not ra %}display:none{% endif %}">
+      {% if not is_cyclic %}
+      <div class="warn-banner small">
+        Approval routing is available in cyclic pipelines. In DAG mode,
+        rejection stops the run — the route fields below are stored but
+        ignored at runtime.
+      </div>
+      {% endif %}
+
+      <fieldset class="route-fieldset">
+        <legend>On reject</legend>
+        <label class="muted small">Target agent</label>
+        <select name="on_reject_target">
+          <option value="">— continue normally —</option>
+          {% for aid_other in other_agent_ids %}
+          <option value="{{ aid_other }}"
+                  {% if on_rej.get('target') == aid_other %}selected{% endif %}>
+            {{ aid_other }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <label class="muted small">Include in payload</label>
+        <div class="mode-checks">
+          {% for opt in ['output', 'note', 'full_context'] %}
+          <label class="mode-check">
+            <input type="checkbox" name="on_reject_include" value="{{ opt }}"
+                   {% if opt in rej_inc %}checked{% endif %}/>
+            <span>{{ opt }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <label class="muted small">Mode</label>
+        <select name="on_reject_mode">
+          {% set rej_mode = on_rej.get('mode', 'feedback') %}
+          <option value="feedback" {% if rej_mode == 'feedback' %}selected{% endif %}>
+            feedback (mailbox message — agent decides next step)
+          </option>
+          <option value="task" {% if rej_mode == 'task' %}selected{% endif %}>
+            task (resumes target with a new run)
+          </option>
+        </select>
+      </fieldset>
+
+      <fieldset class="route-fieldset">
+        <legend>On approve</legend>
+        <label class="muted small">Target agent</label>
+        <select name="on_approve_target">
+          <option value="">— continue normally (no message) —</option>
+          {% for aid_other in other_agent_ids %}
+          <option value="{{ aid_other }}"
+                  {% if on_app.get('target') == aid_other %}selected{% endif %}>
+            {{ aid_other }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <label class="muted small">Include in payload</label>
+        <div class="mode-checks">
+          {% for opt in ['output', 'note', 'full_context'] %}
+          <label class="mode-check">
+            <input type="checkbox" name="on_approve_include" value="{{ opt }}"
+                   {% if opt in app_inc %}checked{% endif %}/>
+            <span>{{ opt }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <label class="muted small">Mode</label>
+        <select name="on_approve_mode">
+          {% set app_mode = on_app.get('mode', 'feedback') %}
+          <option value="feedback" {% if app_mode == 'feedback' %}selected{% endif %}>
+            feedback
+          </option>
+          <option value="task" {% if app_mode == 'task' %}selected{% endif %}>
+            task
+          </option>
+        </select>
+      </fieldset>
+
+      {% if cycle_warning %}
+      <div class="warn-banner small">
+        {{ cycle_warning }}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary btn-sm">Save Approval</button>
+      <button type="button" class="btn-ghost btn-sm"
+              hx-get="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}"
+              hx-target="#right-panel-content" hx-swap="innerHTML">
+        ← Back to Metadata
+      </button>
+    </div>
+  </form>
+</div>

@@ -27,4 +27,10 @@
     <span class="summary-count c-purple">{{ summary.waiting_approval }}</span>
     <span class="summary-label">Waiting</span>
   </div>
+  {% if summary.waiting_feedback %}
+  <div class="summary-item">
+    <span class="summary-count c-teal">{{ summary.waiting_feedback }}</span>
+    <span class="summary-label">Feedback</span>
+  </div>
+  {% endif %}
 </div>

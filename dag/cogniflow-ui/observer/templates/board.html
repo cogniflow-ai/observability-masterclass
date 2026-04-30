@@ -9,6 +9,8 @@
 <script>
   window._pollMs = {{ poll_ms }};
   window._initialState = "{{ initial_state }}";
+  window._pipelineName = "{{ name }}";
+  window._validationBlocked = {{ 'true' if validation and validation.blocked else 'false' }};
 </script>
 
 <!-- Paused banner (shown by JS when pipeline state is paused) -->
@@ -35,6 +37,17 @@
     <a class="btn btn-sm" href="/">← All pipelines</a>
     <span style="font-size:13px; font-weight:600; color:var(--txt)">{{ pl_name }}</span>
     <div class="pipeline-controls-spacer"></div>
+    {% if vault_available %}
+    <a class="btn btn-sm" href="/observer/vault"
+       title="Open the read-only secrets vault viewer">
+      🔐 Vault
+    </a>
+    <button class="btn btn-sm" id="audit-btn"
+            onclick="loadRunAudit('{{ name }}')"
+            title="Show the secrets audit trail for this pipeline run">
+      📜 Run audit
+    </button>
+    {% endif %}
     {% if versioning %}
     <a class="btn btn-sm" href="/pipelines/{{ name }}/history"
        title="Browse run history, compare file versions, edit current files">
@@ -69,6 +82,23 @@
     <span>✓ Pipeline complete — all agents finished.</span>
     <div style="flex:1"></div>
     <button class="btn btn-sm" onclick="manualRefresh('{{ name }}')">↻ Refresh</button>
+  </div>
+
+  <!-- Pre-run validation banner (HTMX OOB-swapped from /cards) -->
+  <div id="validation-banner-container">
+    {% include "partials/_validation_banner.html" %}
+  </div>
+
+  <!-- Leak banner (HTMX OOB-swapped from /cards) -->
+  <div id="leak-banner-container">
+    {% include "partials/_leak_banner.html" %}
+  </div>
+
+  <!-- Approval queue (HTMX-polled) -->
+  <div id="approval-queue-container"
+       hx-get="/pipelines/{{ name }}/approval-queue"
+       hx-trigger="load, every {{ poll_ms }}ms"
+       hx-swap="innerHTML">
   </div>
 
   <!-- DAG view (collapsible) -->

@@ -1,5 +1,4 @@
-{% set raw_agents = pipeline.get('agents', []) if pipeline else [] %}
-{% set agents = raw_agents | selectattr('id') | sort(attribute='id') | list %}
+{% set agents = pipeline.get('agents', []) if pipeline else [] %}
 
 <div class="agents-header">
   <h3>Agents ({{ agents | length }})</h3>
@@ -50,7 +49,7 @@
        hx-get="/pipeline/{{ pipeline_name }}/prompt/{{ a.get('id') }}/02_prompt.md"
        hx-target="#right-panel-content"
        hx-swap="innerHTML">Task Prompt</a>
-    {% if claude_bin_found and enable_specialize %}
+    {% if claude_bin_found %}
     <form class="specialize-form"
           data-agent-id="{{ a.get('id') }}"
           hx-post="/pipeline/{{ pipeline_name }}/agent/{{ a.get('id') }}/specialize"
@@ -85,15 +84,13 @@
       <h2>New Agent</h2>
       <button onclick="hideModal('modal-new-agent')">✕</button>
     </div>
-    <form method="post" action="/pipeline/{{ pipeline_name }}/agent/new"
-          onsubmit="hideModal('modal-new-agent')">
+    <form method="post" action="/pipeline/{{ pipeline_name }}/agent/new">
       <div class="form-grid">
         <div class="form-group">
           <label>Agent ID <span class="req">*</span></label>
           <input name="agent_id" required placeholder="001_researcher"
-                 pattern="\d{3}_[a-z0-9_]+"
-                 title="Format: NNN_name (e.g. 001_researcher)"/>
-          <small>Format: NNN_name</small>
+                 pattern="\d{3}_[a-z0-9_]+" title="Format: NNN_name"/>
+          <small>Format: NNN_name (e.g. 001_researcher)</small>
         </div>
         <div class="form-group">
           <label>Display name</label>
@@ -102,32 +99,28 @@
         <div class="form-group">
           <label>Type</label>
           <select name="agent_type">
-            {% for t in settings.agent_types %}
+            {% for t in ['orchestrator','worker','reviewer','synthesizer','router','classifier','validator','summarizer'] %}
             <option value="{{ t }}">{{ t }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="form-group">
           <label>Category</label>
-          <input name="category" placeholder="research, analysis…"/>
+          <input name="category" placeholder="research…"/>
         </div>
         <div class="form-group full">
           <label>Description</label>
           <input name="description" placeholder="What does this agent do?"/>
         </div>
-        <div class="form-group full">
-          <label>Depends on (comma-separated IDs)</label>
-          <input name="depends_on" placeholder="001_researcher, 002_analyst"/>
-        </div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:8px">
         The agent is created with verbatim copies of the type's templates. Use
-        the <strong>⚙ Generate Prompts</strong> button on the agent's card to
-        tailor them to the instance via the meta-prompt pipeline.
+        the <strong>⚙ Generate</strong> button on the agent's card to tailor
+        them to the instance.
       </p>
       <div class="modal-footer">
         <button type="button" class="btn-ghost" onclick="hideModal('modal-new-agent')">Cancel</button>
-        <button type="submit" class="btn-primary">Add Agent</button>
+        <button type="submit" class="btn-primary">Create Agent</button>
       </div>
     </form>
   </div>

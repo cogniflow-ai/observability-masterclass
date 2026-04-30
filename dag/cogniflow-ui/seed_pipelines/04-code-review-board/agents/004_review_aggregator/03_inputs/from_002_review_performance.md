@@ -1,6 +1,0 @@
-1. **Redundant in-function import** — Line 2 — Low — `import requests` executes on every call; while Python caches modules, the import machinery still adds per-call overhead versus a module-level import.
-2. **No connection reuse / session pooling** — Line 4 — Medium — Using `requests.get` directly opens a fresh TCP/TLS connection per call instead of reusing a `requests.Session`, which is costly under repeated invocation.
-3. **No timeout on HTTP call (blocking risk)** — Line 4 — High — `requests.get` without a `timeout` can block the calling thread indefinitely on a slow/hung server, stalling throughput.
-4. **Synchronous blocking I/O with no batching/async** — Line 4 — Medium — The function performs a blocking network round-trip per user id; at realistic scale this serialises latency and prevents concurrency.
-5. **Full JSON parse when only one field is ultimately accessed before return** — Line 5 — Low — `response.json()` deserialises the entire payload even though only `data['password']` is touched inside the function; negligible for small payloads but wasteful for large responses.
-6. **Dead computation** — Line 6 — Low — `password = data['password']` performs a dict lookup whose result is never used, adding pointless work on every call.

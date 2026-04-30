@@ -1,0 +1,104 @@
+{# Pipeline-wide Settings tab.
+   Edits config.json sections: approval, secrets. Plus a .gitignore status
+   nudge and the substitutions → vault migration banner. #}
+
+<div id="settings-content">
+
+{% if save_ok is defined and save_ok %}<div class="success-banner">✓ Settings saved.</div>{% endif %}
+{% if save_error is defined and save_error %}<div class="error-banner">⚠ {{ save_error }}</div>{% endif %}
+
+{% set appr  = (pipeline_config.get('approval') or {}) %}
+{% set sec   = (pipeline_config.get('secrets')  or {}) %}
+
+<div class="settings-tab">
+
+  {% if migration_banner and migration_banner.candidates %}
+  <div class="warn-banner migration-banner">
+    <div>
+      <strong>Migrate substitutions to vault?</strong>
+      Found {{ migration_banner.candidates | length }} value(s) in
+      <code>config.json.substitutions</code> that look like credentials
+      ({{ migration_banner.candidates | map(attribute='key') | join(', ') }}).
+    </div>
+    <form hx-post="/pipeline/{{ pipeline_name }}/migrate-substitutions"
+          hx-target="#settings-content" hx-swap="innerHTML"
+          hx-confirm="Migrate {{ migration_banner.candidates | length }} substitution(s) to the vault and rewrite {{KEY}} → <<secret:KEY>> in every prompt? You'll see a summary diff afterwards.">
+      <button type="submit" class="btn-primary btn-sm">Migrate</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if migration_result %}
+  <div class="success-banner">
+    <strong>Migration complete.</strong>
+    Migrated: {{ migration_result.migrated | join(', ') or '—' }}.
+    Files rewritten: {{ migration_result.rewritten_files }}.
+  </div>
+  {% endif %}
+
+  {% if gitignore_status and gitignore_status.missing %}
+  <div class="warn-banner small">
+    <code>.gitignore</code> is missing entries for:
+    {{ gitignore_status.missing | join(', ') }}.
+    The orchestrator will fix this on its next run, or
+    <form style="display:inline" hx-post="/pipeline/{{ pipeline_name }}/fix-gitignore"
+          hx-target="#settings-content" hx-swap="innerHTML">
+      <button type="submit" class="btn-ghost btn-sm">Fix now</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <form hx-post="/pipeline/{{ pipeline_name }}/settings/pipeline-config"
+        hx-target="#settings-content" hx-swap="innerHTML"
+        class="settings-form">
+
+    <fieldset class="settings-section">
+      <legend>Approval</legend>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Approver label</label>
+          <input name="approver" value="{{ appr.get('approver', 'operator') }}"/>
+          <small class="muted">Free-form label. Surfaced in approval requests; the
+          Observer / CLI uses it to scope <code>cli.py approve</code>.</small>
+        </div>
+        <div class="form-group">
+          <label>Poll interval (s)</label>
+          <input name="poll_interval_s" type="number" min="1"
+                 value="{{ appr.get('poll_interval_s', 10) }}"/>
+        </div>
+        <div class="form-group">
+          <label>Approval timeout (s)</label>
+          <input name="timeout_s" type="number" min="1"
+                 value="{{ appr.get('timeout_s', 3600) }}"/>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="settings-section">
+      <legend>Secrets</legend>
+      <label class="checkbox-row">
+        <input type="checkbox" name="rehydrate_outputs" value="true"
+               {% if sec.get('rehydrate_outputs', True) %}checked{% endif %}/>
+        <span>Rehydrate secret values in <code>04_context.md</code> and
+              <code>05_output.md</code> (recommended for course / dev use)</span>
+      </label>
+      <small class="muted">When off, placeholders are preserved on disk.</small>
+    </fieldset>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary btn-sm">Save Settings</button>
+    </div>
+  </form>
+
+  {% if unresolved_secrets is defined and unresolved_secrets %}
+  <div class="warn-banner small">
+    <strong>Unresolved <code>&lt;&lt;secret:NAME&gt;&gt;</code> markers
+    in this pipeline:</strong>
+    {{ unresolved_secrets | length }} reference(s) — names not present in
+    the vault: {{ unresolved_secrets | join(', ') }}.
+    <a href="/vault?from={{ pipeline_name }}" class="btn-ghost btn-sm">Open Vault</a>
+  </div>
+  {% endif %}
+
+</div>
+</div>

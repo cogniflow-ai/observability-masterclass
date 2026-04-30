@@ -87,6 +87,38 @@ function toggleRejection(agentId) {
   const show = wrap.classList.toggle('show');
   const btn  = document.getElementById('reject-btn-' + agentId);
   if (btn) btn.textContent = show ? 'Cancel' : 'Reject';
+  if (show) {
+    const inp = wrap.querySelector('input[name="note"]');
+    if (inp) inp.focus();
+  }
+}
+
+function validateRejectNote(form) {
+  const inp = form.querySelector('input[name="note"]');
+  if (!inp || !inp.value.trim()) {
+    alert('A rejection note is required so the downstream agent has feedback to work from.');
+    if (inp) inp.focus();
+    return false;
+  }
+  return true;
+}
+
+// ── Validation drill-down side panel ──────────────────────────────────────
+
+function loadViolations(name, agentId, phase) {
+  htmx.ajax(
+    'GET',
+    `/pipelines/${name}/agents/${agentId}/violations?phase=${encodeURIComponent(phase)}`,
+    { target: '#detail-container', swap: 'innerHTML' },
+  );
+}
+
+// ── Run audit (secrets) ───────────────────────────────────────────────────
+
+function loadRunAudit(name, direction) {
+  let url = `/pipelines/${name}/audit`;
+  if (direction) url += `?direction=${encodeURIComponent(direction)}`;
+  htmx.ajax('GET', url, { target: '#detail-container', swap: 'innerHTML' });
 }
 
 // ── Tab switching in detail panel ─────────────────────────────────────────
@@ -179,6 +211,13 @@ function startPipeline(name) {
   const btn = document.getElementById('start-btn');
   if (btn && btn.dataset.state === 'paused') {
     resumePipeline(name);
+    return;
+  }
+  // OBSERVER_CHANGES § 1.2 — block start when pipeline_validation_error is the
+  // last attempted run's outcome.
+  if (window._validationBlocked) {
+    alert('Pipeline cannot start — fix the structural validation errors first '
+        + '(re-save in the Configurator).');
     return;
   }
   setStartButtonState('starting');

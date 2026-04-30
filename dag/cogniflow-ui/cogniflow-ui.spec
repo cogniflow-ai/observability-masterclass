@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for Cogniflow UI.
+PyInstaller spec for Cogniflow UI v1.1.0.
 
 Build:
     venv/Scripts/python -m PyInstaller cogniflow-ui.spec
@@ -38,7 +38,6 @@ datas = [
     (str(PROJECT_ROOT / "configurator" / "static"),    "configurator/static"),
     (str(PROJECT_ROOT / "configurator" / "prompt_templates"), "configurator/prompt_templates"),
     (str(PROJECT_ROOT / "configurator" / "config.json"),       "configurator"),
-    (str(PROJECT_ROOT / "configurator" / "meta_prompts_v4.md"), "configurator"),
 
     # Bundled seed pipelines (overlaid onto pipelines_root on first launch).
     (str(PROJECT_ROOT / "seed_pipelines"), "seed_pipelines"),
@@ -67,6 +66,7 @@ hiddenimports = [
     "observer.filesystem",
     "observer.dag_svg",
     "observer.versioning",
+    "observer.vault_view",
     "configurator",
     "configurator.app",
     "configurator.config",
@@ -75,6 +75,7 @@ hiddenimports = [
     "configurator.versioning",
     "configurator.validation",
     "configurator.meta_specialize",
+    "configurator.orchestrator_bridge",
     # markdown's extension auto-loader.
     "markdown.extensions.fenced_code",
     "markdown.extensions.tables",
@@ -133,7 +134,7 @@ app = BUNDLE(
     bundle_identifier="com.cogniflow.ui",
     info_plist={
         "CFBundleDisplayName": "Cogniflow UI",
-        "CFBundleShortVersionString": "1.0.2",
+        "CFBundleShortVersionString": "1.1.0",
         "NSHighResolutionCapable": "True",
     },
 )

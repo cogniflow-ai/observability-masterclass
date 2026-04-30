@@ -1,0 +1,16 @@
+{% if validation and validation.blocked %}
+<div class="warn-banner red">
+  <div class="warn-banner-title">
+    <span>⛔</span>
+    <span>Pipeline structural validation failed — Run is blocked.</span>
+  </div>
+  <ul class="warn-banner-list">
+    {% for err in validation.errors %}
+      <li>{{ err }}</li>
+    {% endfor %}
+  </ul>
+  <div class="warn-banner-help">
+    Re-save the pipeline in the Configurator to clear this banner.
+  </div>
+</div>
+{% endif %}

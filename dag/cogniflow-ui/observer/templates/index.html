@@ -3,6 +3,9 @@
 
 {% block navbar_extra %}
 <a class="btn btn-sm" href="/configurator" style="margin-left:16px">⚙ Configurator</a>
+{% if vault_available %}
+<a class="navbar-pipeline" href="/observer/vault" style="text-decoration:none">🔐 Vault</a>
+{% endif %}
 {% endblock %}
 
 {% block content %}

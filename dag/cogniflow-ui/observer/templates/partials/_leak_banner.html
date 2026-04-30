@@ -1,0 +1,11 @@
+{% if leaked_any %}
+<div class="warn-banner red">
+  <div class="warn-banner-title">
+    <span>⚠</span>
+    <span>Secret leaked in this run — a vault value appeared in a model response.</span>
+  </div>
+  <div class="warn-banner-help">
+    <a href="#" onclick="event.preventDefault(); loadRunAudit('{{ name }}', 'leaked');">Open the run audit ↗</a>
+  </div>
+</div>
+{% endif %}

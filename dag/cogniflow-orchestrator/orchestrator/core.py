@@ -1,14 +1,17 @@
 """
-Cogniflow Orchestrator — Pipeline runner.
+Cogniflow Orchestrator v3.5 — Core pipeline runner.
 
-run_pipeline() is the single entry point.  It:
-  1. validate_pipeline()          — IMP-03: fail before spending credits
-  2. compute_layers()             — IMP-07: networkx topological sort
-  3. For each layer → run_layer() — parallel or sequential
-  4. Emits all lifecycle events   — structured JSONL for observability
+run_pipeline() auto-detects mode and dispatches:
+  • Acyclic: layered ThreadPoolExecutor path (from v2.1.0, extended with
+             v1 features: pause/resume handshake, history snapshots,
+             pipeline-level token rollup).
+  • Cyclic:  run_cyclic_pipeline() event loop (unchanged).
+
+All v3.0/v3.5 behaviour is preserved (gitignore, hooks, CLAUDE.md). Run
+artefacts are still written to ``.state/``.
 """
-
 from __future__ import annotations
+
 import json
 import re
 import shutil
@@ -16,54 +19,32 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from .config import OrchestratorConfig, DEFAULT_CONFIG
+from .agent import run_agent, read_status, STATUS_BYPASSED, STATUS_DONE
+from .cyclic_engine import run_cyclic_pipeline as _run_cyclic
+from .dag import build_dag, is_cyclic_pipeline
+from .debug import get_logger, setup_logging
 from .events import EventLog
-from .validate import validate_pipeline
-from .dag import build_graph, compute_layers, compute_layers_fallback, get_dependencies
-from .agent import exec_agent, is_done, read_status, STATUS_BYPASSED
 from .exceptions import PipelineError
+from .hooks import generate_claude_md, install_hooks
+from .secrets import generate_gitignore
+from .validate import validate_pipeline
 
-try:
-    import networkx as nx
-    _HAS_NX = True
-except ImportError:
-    _HAS_NX = False
-
-
-def _run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+if TYPE_CHECKING:
+    from .config import OrchestratorConfig
 
 
-_EMPTY_TOKEN_TOTALS: dict[str, Any] = {
-    "total_input":          0,
-    "total_output":         0,
-    "total_cache_creation": 0,
-    "total_cache_read":     0,
-    "total_cost_usd":       0.0,
-    "agents_counted":       0,
-}
+# Backwards-compat alias — tests (and any v1-era code) that monkeypatch
+# `orchestrator.core.exec_agent` still work against the v3.5 runner.
+exec_agent = run_agent
 
-# Observer-controlled pause/resume sentinels (consumed by the orchestrator).
-#
-# The observer instructs the running orchestrator by dropping files into
-# pipeline_dir/.state/:
-#   • PAUSE_SENTINEL  — detected between layers → orchestrator removes it,
-#                       emits pipeline_paused, then blocks until...
-#   • RESUME_SENTINEL — orchestrator removes it, emits pipeline_resumed,
-#                       and proceeds into the next layer.
-#
-# Files are consumed (removed) by the orchestrator so their presence
-# always reflects a pending instruction. No file present ⇒ nothing
-# pending. This keeps the observer fully in control: it's the only
-# party that creates these files; the orchestrator is purely reactive.
-#
-# Pause is transient within a run — the final status of a run that was
-# paused and then resumed is "done" (or "failed"), not "paused".
-PAUSE_SENTINEL  = "pause"
-RESUME_SENTINEL = "resume"
-PAUSE_POLL_SECONDS = 1.0
+
+# ── Pause / resume sentinels (v1 observer handshake) ──────────────────────────
+
+PAUSE_SENTINEL      = "pause"
+RESUME_SENTINEL     = "resume"
+PAUSE_POLL_SECONDS  = 1.0
 
 
 # Per-agent files captured in each history snapshot. 03_inputs/ is handled
@@ -80,141 +61,139 @@ _AGENT_SNAPSHOT_FILES: tuple[str, ...] = (
 )
 
 
+def resolve_agent_dir(pipeline_dir: Path, agent_spec: dict[str, Any]) -> Path:
+    """
+    Locate an agent's directory with backward compatibility.
+
+    Resolution order:
+      1. ``dir`` field in pipeline.json (v3.5 style — wins if set)
+      2. ``<pipeline_dir>/agents/<id>/`` (v1 style — preferred fallback)
+      3. ``<pipeline_dir>/<id>/`` (v3.5 implicit fallback)
+    """
+    aid = agent_spec.get("id", "")
+    explicit = agent_spec.get("dir")
+    if explicit:
+        return pipeline_dir / explicit
+    v1_path = pipeline_dir / "agents" / aid
+    if v1_path.exists():
+        return v1_path
+    return pipeline_dir / aid
+
+
+_EMPTY_TOKEN_TOTALS: dict[str, Any] = {
+    "total_input":          0,
+    "total_output":         0,
+    "total_cache_creation": 0,
+    "total_cache_read":     0,
+    "total_cost_usd":       0.0,
+    "agents_counted":       0,
+}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _run_id() -> str:
+    return datetime.now(timezone.utc).strftime("run-%Y%m%d-%H%M%S")
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
 def run_pipeline(
     pipeline_dir: Path,
-    config: OrchestratorConfig | None = None,
+    config: "OrchestratorConfig | None" = None,
+    mode: str = "auto",
+    force_hooks_install: bool = False,
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Execute the pipeline defined in pipeline_dir/pipeline.json.
+    Validate and run the pipeline at *pipeline_dir*.
 
-    Directory layout expected:
-      pipeline_dir/
-        pipeline.json
-        agents/
-          <agent_id>/
-            01_system.md
-            02_prompt.md
-            00_config.json   (optional)
+    Returns a summary dict: {run_id, status, duration_s, layers,
+    agents_run, agents_skipped, tokens, label, note}. Cyclic mode returns
+    the same dict shape with layers=0 and minimal fields populated.
 
-    State is written to pipeline_dir/.state/ at runtime.
-
-    Returns a summary dict: {run_id, status, duration_s, layers, agents_run, agents_skipped}
+    Mode detection:
+      auto   → cyclic if any feedback/peer edge exists, else DAG
+      dag    → force Kahn's path
+      cyclic → force cyclic event loop
     """
-    cfg    = config or DEFAULT_CONFIG
+    # Late-imported to dodge the circular import config ↔ core.
+    if config is None:
+        from .config import OrchestratorConfig
+        config = OrchestratorConfig.from_pipeline_dir(Path(pipeline_dir))
+
+    pipeline_dir = Path(pipeline_dir)
+    spec = validate_pipeline(pipeline_dir)
     run_id = run_id or _run_id()
 
-    pipeline_json = pipeline_dir / "pipeline.json"
-    agents_base   = pipeline_dir / "agents"
-    state_dir     = pipeline_dir / ".state"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    # GAP-2 — ensure .gitignore excludes .state/ before we write any state
+    generate_gitignore(pipeline_dir)
 
+    state_dir = pipeline_dir / ".state"
+    state_dir.mkdir(exist_ok=True)
     events_path = state_dir / "events.jsonl"
     log = EventLog(events_path)
-    # Capture the end of prior runs' events so we can slice out THIS run's
-    # events for the history snapshot at end of run.
+    # Byte offset used to slice this run's events at snapshot time.
     events_offset = events_path.stat().st_size if events_path.exists() else 0
 
-    # ── 1. Validate before spending a single credit (IMP-03) ──────────────
-    print("\n" + "═" * 50)
-    print("  Cogniflow Multi-Agent Orchestrator")
-    print("═" * 50)
-    print(f"  Pipeline dir : {pipeline_dir}")
-    print(f"  Run ID       : {run_id}")
-    print(f"  Claude bin   : {cfg.claude_bin}")
-    print(f"  Timeout      : {cfg.agent_timeout}s per agent")
-    print("═" * 50 + "\n")
+    setup_logging(pipeline_dir, config.debug_enabled, config.debug_logfile)
+    dlog = get_logger()
+    dlog.debug(f"[engine] run_id={run_id} mode={mode} "
+               f"pipeline={spec.get('name')!r}")
+    dlog.debug(f"[engine] claude_bin={config.claude_bin} "
+               f"timeout={config.agent_timeout}s "
+               f"max_parallel={config.max_parallel_agents} "
+               f"retries={config.max_retries}")
 
-    print("  Validating pipeline…", end=" ", flush=True)
-    try:
-        data = validate_pipeline(pipeline_json, agents_base)
-        print("✓")
-    except Exception as e:
-        print("✗")
-        log.pipeline_error("validation_failed", str(e))
-        raise
+    # ── Banner (v1 style) ─────────────────────────────────────────────────────
+    if config.verbose:
+        print("\n" + "═" * 50)
+        print("  Cogniflow Multi-Agent Orchestrator")
+        print("═" * 50)
+        print(f"  Pipeline dir : {pipeline_dir}")
+        print(f"  Run ID       : {run_id}")
+        print(f"  Claude bin   : {config.claude_bin}")
+        print(f"  Timeout      : {config.agent_timeout}s per agent")
+        print("═" * 50 + "\n")
 
-    name = data.get("name", "unnamed")
-    agents_def: list[dict] = data["agents"]
+    if mode == "auto":
+        use_cyclic = is_cyclic_pipeline(spec)
+    elif mode == "cyclic":
+        use_cyclic = True
+    else:
+        use_cyclic = False
+    dlog.debug(f"[engine] mode resolved → {'cyclic' if use_cyclic else 'dag'}")
+
+    agents_def = spec.get("agents", [])
     total = len(agents_def)
+    log.pipeline_start(spec.get("name", pipeline_dir.name), run_id)
 
-    log.pipeline_start(name, run_id, total)
-    print(f"\n  Pipeline : {name}")
-    print(f"  Agents   : {total}\n")
-
-    # ── 2-3. Execute, with an end-of-run snapshot regardless of outcome ──
-    t_pipeline_start = time.monotonic()
-    agents_run     = 0
-    agents_skipped = 0
-    summary_status = "done"
-    layers: list[list[str]] = []
+    t0 = time.monotonic()
+    summary_status   = STATUS_DONE
+    summary_layers   = 0
+    agents_run       = 0
+    agents_skipped   = 0
     totals: dict[str, Any] = _EMPTY_TOKEN_TOTALS.copy()
-
-    pause_path  = state_dir / PAUSE_SENTINEL
-    resume_path = state_dir / RESUME_SENTINEL
+    agent_dirs: dict[str, Path] = {
+        a["id"]: resolve_agent_dir(pipeline_dir, a)
+        for a in agents_def
+    }
 
     try:
-        # Build graph and compute layers
-        if _HAS_NX:
-            g      = build_graph(agents_def)
-            layers = compute_layers(g)
+        if use_cyclic:
+            generate_claude_md(pipeline_dir, spec)
+            if force_hooks_install or not (pipeline_dir / ".claude" / "settings.json").exists():
+                install_hooks(pipeline_dir)
+            _run_cyclic(pipeline_dir, spec, config, log, run_id)
         else:
-            g      = None
-            layers = compute_layers_fallback(agents_def)
+            summary_layers, agents_run, agents_skipped = _run_dag_pipeline(
+                pipeline_dir, spec, agent_dirs, config, log, run_id,
+            )
 
-        # Execute layers
-        last_layer_idx = len(layers) - 1
-        for layer_num, layer_agents in enumerate(layers):
-            # Skip agents that were bypassed by a router in a previous layer
-            active_agents = [
-                aid for aid in layer_agents
-                if read_status(agents_base / aid).get("status") != STATUS_BYPASSED
-            ]
-
-            if active_agents:
-                parallel    = len(active_agents) > 1
-                layer_label = f"parallel ×{len(active_agents)}" if parallel else "sequential"
-                print(f"── Layer {layer_num} [{layer_label}]: {', '.join(active_agents)}")
-
-                t_layer = time.monotonic()
-                log.layer_start(layer_num, active_agents, parallel)
-
-                try:
-                    ran, skipped = _run_layer(
-                        active_agents, agents_base, agents_def, g, cfg, log, run_id, parallel
-                    )
-                    agents_run     += ran
-                    agents_skipped += skipped
-                except PipelineError as exc:
-                    failed = [a for a in active_agents]
-                    log.layer_fail(layer_num, failed)
-                    log.pipeline_error("layer_failed", str(exc))
-                    summary_status = "failed"
-                    print(f"\n  ✗ Pipeline halted at layer {layer_num}: {exc}\n")
-                    raise
-
-                log.layer_done(layer_num, time.monotonic() - t_layer)
-                print()
-
-            # ── Observer pause/resume handshake (AFTER layer completes) ──
-            # Emitted only once the current layer has fully finished, so
-            # the observer UI can render "Pausing…" while the layer
-            # drains and flip to "Paused" the moment pipeline_paused
-            # arrives. Skipped on the last layer: pausing before pipeline
-            # termination would have no effect.
-            if layer_num < last_layer_idx:
-                _check_pause(
-                    pause_path, resume_path,
-                    next_layer=layer_num + 1,
-                    log=log, run_id=run_id, config=cfg,
-                )
-
-        # ── Token rollup (IMP-07) ─────────────────────────────────────────
-        # Sum the per-agent usage blocks written into 06_status.json by
-        # exec_agent(). Emit pipeline_tokens *before* pipeline_done so the
-        # final two events bracket the totals cleanly.
-        duration = time.monotonic() - t_pipeline_start
-        totals   = _sum_pipeline_tokens(agents_base, agents_def)
+        # ── Token rollup (IMP-07) ────────────────────────────────────────────
+        totals = _sum_pipeline_tokens(agent_dirs)
         if totals["agents_counted"] > 0:
             log.pipeline_tokens(
                 run_id,
@@ -225,86 +204,209 @@ def run_pipeline(
                 total_cost_usd=totals["total_cost_usd"],
                 agents_counted=totals["agents_counted"],
             )
-        log.pipeline_done(run_id, len(layers), duration)
 
-        print("═" * 50)
-        print(f"  Done  ·  {len(layers)} layers  ·  {duration:.0f}s  ·  "
-              f"{agents_run} run, {agents_skipped} skipped")
-        if totals["agents_counted"] > 0:
-            print(f"  Tokens · in {totals['total_input']:,} · "
-                  f"out {totals['total_output']:,} · "
-                  f"cache_read {totals['total_cache_read']:,} · "
-                  f"${totals['total_cost_usd']:.4f}  "
-                  f"({totals['agents_counted']}/{len(agents_def)} agents reported)")
-        print("═" * 50 + "\n")
-    finally:
-        # Whatever happened (success, PipelineError, KeyboardInterrupt),
-        # snapshot the pipeline state for this run before returning/raising.
-        final_duration = time.monotonic() - t_pipeline_start
-        if summary_status != "done" and not totals["agents_counted"]:
-            # Salvage any partial token data before we snapshot.
+        duration = round(time.monotonic() - t0, 2)
+        log.pipeline_done(run_id, duration)
+        if config.verbose:
+            print("═" * 50)
+            print(f"  Done  ·  {summary_layers} layers  ·  {duration:.0f}s  ·  "
+                  f"{agents_run} run, {agents_skipped} skipped")
+            if totals["agents_counted"] > 0:
+                print(f"  Tokens · in {totals['total_input']:,} · "
+                      f"out {totals['total_output']:,} · "
+                      f"cache_read {totals['total_cache_read']:,} · "
+                      f"${totals['total_cost_usd']:.4f}  "
+                      f"({totals['agents_counted']}/{total} agents reported)")
+            print("═" * 50 + "\n")
+
+    except PipelineError as exc:
+        summary_status = "failed"
+        log.pipeline_error(run_id, str(exc))
+        if totals["agents_counted"] == 0:
             try:
-                totals = _sum_pipeline_tokens(agents_base, agents_def)
+                totals = _sum_pipeline_tokens(agent_dirs)
             except Exception:
                 totals = _EMPTY_TOKEN_TOTALS.copy()
-
-        # label and note are intentionally blank at run time. They live in
-        # summary.json so a reviewer can annotate a run after the fact
-        # (e.g. label="cot-critic", note="tries chain-of-thought for the
-        # critic agent"). Placed first so they're the first thing an
-        # editor sees when opening summary.json.
+        raise
+    except Exception as exc:
+        summary_status = "failed"
+        log.pipeline_error(run_id, str(exc))
+        if totals["agents_counted"] == 0:
+            try:
+                totals = _sum_pipeline_tokens(agent_dirs)
+            except Exception:
+                totals = _EMPTY_TOKEN_TOTALS.copy()
+        raise
+    finally:
+        final_duration = round(time.monotonic() - t0, 2)
         summary = {
             "label":          "",
             "note":           "",
             "run_id":         run_id,
             "status":         summary_status,
-            "duration_s":     round(final_duration, 1),
-            "layers":         len(layers),
+            "duration_s":     final_duration,
+            "layers":         summary_layers,
             "agents_run":     agents_run,
             "agents_skipped": agents_skipped,
             "tokens":         totals,
         }
-
         try:
             snap_dir = _snapshot_run(
-                pipeline_dir, agents_base, agents_def,
-                run_id, summary, cfg, events_path, events_offset,
+                pipeline_dir, agent_dirs, agents_def,
+                run_id, summary, config, events_path, events_offset,
             )
-            if cfg.verbose:
+            if config.verbose and snap_dir:
                 print(f"  History  : history/{snap_dir.name}\n")
         except Exception as snap_exc:
-            # Snapshot failures must not mask the real run outcome.
-            print(f"  ⚠  History snapshot failed: {snap_exc}\n")
+            if config.verbose:
+                print(f"  ⚠  History snapshot failed: {snap_exc}\n")
 
     return summary
 
+
+# ── DAG (acyclic) execution path ──────────────────────────────────────────────
+
+def _run_dag_pipeline(
+    pipeline_dir: Path,
+    spec: dict[str, Any],
+    agent_dirs: dict[str, Path],
+    config: "OrchestratorConfig",
+    log: EventLog,
+    run_id: str,
+) -> tuple[int, int, int]:
+    """
+    Run the DAG. Returns (num_layers, agents_run, agents_skipped).
+
+    The observer pause/resume handshake is applied between layers.
+    """
+    layers = build_dag(spec)
+    dlog = get_logger()
+
+    agent_map = {a["id"]: a for a in spec["agents"]}
+    dlog.debug(f"[engine] computed {len(layers)} layer(s): "
+               + " → ".join(f"[{', '.join(layer)}]" for layer in layers))
+
+    state_dir   = pipeline_dir / ".state"
+    pause_path  = state_dir / PAUSE_SENTINEL
+    resume_path = state_dir / RESUME_SENTINEL
+
+    agents_run     = 0
+    agents_skipped = 0
+    last_layer_idx = len(layers) - 1
+
+    for layer_idx, layer in enumerate(layers):
+        # Skip agents bypassed by a router in a previous layer.
+        active_agents = [
+            aid for aid in layer
+            if read_status(agent_dirs[aid]).get("status") != STATUS_BYPASSED
+        ]
+        if not active_agents:
+            continue
+
+        parallel    = len(active_agents) > 1
+        layer_label = f"parallel ×{len(active_agents)}" if parallel else "sequential"
+        if config.verbose:
+            print(f"── Layer {layer_idx} [{layer_label}]: {', '.join(active_agents)}")
+        dlog.debug(f"[engine] layer {layer_idx} start · agents={active_agents} "
+                   f"parallel={parallel}")
+        t_layer = time.monotonic()
+        log.layer_start(layer_idx, active_agents, parallel)
+
+        errors: list[BaseException] = []
+        results: dict[str, str] = {}
+
+        def _run_one(aid: str) -> str:
+            agent_spec = agent_map[aid]
+            adir       = agent_dirs[aid]
+            deps       = agent_spec.get("depends_on", [])
+            active_deps = _resolve_router_deps(deps, agent_dirs)
+            # Use the module-level attribute so tests that monkeypatch
+            # `orchestrator.core.exec_agent` are still honoured.
+            return exec_agent(aid, adir, active_deps, agent_dirs, config, log, run_id)
+
+        if not parallel:
+            for aid in active_agents:
+                try:
+                    results[aid] = _run_one(aid)
+                except Exception as exc:  # noqa: BLE001 — first failure is re-raised
+                    errors.append(exc)
+                    break
+        else:
+            workers = min(len(active_agents), config.max_parallel_agents)
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(_run_one, aid): aid for aid in active_agents}
+                for fut in as_completed(futures):
+                    aid = futures[fut]
+                    exc = fut.exception()
+                    if exc is not None:
+                        errors.append(exc)
+                    else:
+                        results[aid] = fut.result()
+
+        if errors:
+            log.layer_fail(layer_idx, active_agents)
+            log.pipeline_error("layer_failed", str(errors[0]))
+            raise errors[0]
+
+        for status in results.values():
+            if status == STATUS_DONE:
+                agents_run += 1
+            else:
+                agents_skipped += 1
+
+        log.layer_done(layer_idx, time.monotonic() - t_layer)
+        dlog.debug(f"[engine] layer {layer_idx} complete")
+
+        # ── Observer pause/resume handshake (after layer completes) ──────────
+        if layer_idx < last_layer_idx:
+            _check_pause(pause_path, resume_path,
+                         next_layer=layer_idx + 1,
+                         log=log, run_id=run_id, config=config)
+
+    return len(layers), agents_run, agents_skipped
+
+
+def _resolve_router_deps(
+    declared_deps: list[str],
+    agent_dirs: dict[str, Path],
+) -> list[str]:
+    """Drop dependencies that were bypassed by a router upstream."""
+    active = []
+    for dep in declared_deps:
+        dep_dir = agent_dirs.get(dep)
+        if dep_dir is None:
+            active.append(dep)
+            continue
+        st = read_status(dep_dir)
+        if st.get("status") == STATUS_BYPASSED:
+            continue
+        active.append(dep)
+    return active
+
+
+# ── Observer pause/resume ─────────────────────────────────────────────────────
 
 def _check_pause(
     pause_path:  Path,
     resume_path: Path,
     next_layer:  int,
-    log:         "EventLog",
+    log:         EventLog,
     run_id:      str,
-    config:      OrchestratorConfig,
+    config:      "OrchestratorConfig",
 ) -> None:
     """
     Between-layer pause/resume handshake driven by the observer.
 
-    If `pause_path` exists:
-      1. Consume it (unlink), emit pipeline_paused.
-      2. Poll every PAUSE_POLL_SECONDS until `resume_path` appears.
+    If ``pause_path`` exists:
+      1. Consume it, emit pipeline_paused.
+      2. Poll every PAUSE_POLL_SECONDS until ``resume_path`` appears.
       3. Consume the resume file, emit pipeline_resumed, return.
 
-    If neither file is present this is a no-op.
-
-    No-ops are deliberately cheap (a single Path.exists() call per layer)
-    so adding the check between every layer has negligible cost.
+    No sentinel present → no-op (a single existence check per layer).
     """
     if not pause_path.exists():
         return
 
-    # Consume the pause instruction so its presence always reflects a
-    # pending request. Defensive try/except: the observer may race us.
     try:
         pause_path.unlink()
     except FileNotFoundError:
@@ -318,7 +420,7 @@ def _check_pause(
         print(f"  ⏸  Paused before layer {next_layer}. "
               f"Create {resume_path.name!r} in .state/ to resume.")
 
-    pause_started = time.monotonic()
+    t_pause = time.monotonic()
     while not resume_path.exists():
         time.sleep(PAUSE_POLL_SECONDS)
 
@@ -329,12 +431,14 @@ def _check_pause(
     except OSError:
         pass
 
-    waited = time.monotonic() - pause_started
+    waited = time.monotonic() - t_pause
     log.pipeline_resumed(run_id, resumed_layer=next_layer, waited_s=waited)
     if config.verbose:
         print(f"  ▶  Resumed at layer {next_layer} "
               f"(paused for {waited:.0f}s).")
 
+
+# ── History snapshot ──────────────────────────────────────────────────────────
 
 def _next_history_version(history_dir: Path) -> int:
     """Scan history/v<N>_* folders and return N for the next run."""
@@ -352,32 +456,27 @@ def _next_history_version(history_dir: Path) -> int:
 
 def _snapshot_run(
     pipeline_dir:  Path,
-    agents_base:   Path,
+    agent_dirs:    dict[str, Path],
     agents_def:    list[dict],
     run_id:        str,
     summary:       dict[str, Any],
-    config:        OrchestratorConfig,
+    config:        "OrchestratorConfig",
     events_path:   Path,
     events_offset: int,
 ) -> Path:
     """
-    Freeze the full state of one run under pipeline_dir/history/v{N}_{run_id}/.
+    Freeze the full state of one run under
+    ``pipeline_dir/history/v{N}_{run_id}/``.
 
     Captured per run:
-      • pipeline.json                 — DAG/topology at run time
-      • agents/<id>/                  — every input and artefact:
-            00_config.json, 01_system.md, 02_prompt.md,
-            03_inputs/ (incl. from_*.md and static/),
-            04_context.md, 05_output.md, 05_usage.json,
-            06_status.json, routing.json (if present)
-      • events.jsonl                  — this run's slice of .state/events.jsonl,
-                                        taken by byte offset captured at start.
-      • summary.json                  — run_pipeline's return dict.
-      • env.snapshot.json             — sanitised config (no secrets): model
-                                        limits, timeouts, retry policy, etc.
+      • pipeline.json                  — DAG/topology at run time
+      • agents/<id>/                   — every input and artefact
+      • events.jsonl                   — this run's slice of .state/events.jsonl
+      • summary.json                   — run_pipeline's return dict
+      • env.snapshot.json              — sanitised config (no secrets)
 
-    The snapshot runs in a try/finally in run_pipeline() so failed runs are
-    also captured — typically the most interesting ones to inspect.
+    Called inside a try/finally so failed runs are also captured —
+    typically the most interesting ones to inspect.
     """
     history_dir = pipeline_dir / "history"
     history_dir.mkdir(parents=True, exist_ok=True)
@@ -385,20 +484,18 @@ def _snapshot_run(
     snap    = history_dir / f"v{version}_{run_id}"
     snap.mkdir()
 
-    # pipeline.json snapshot
     src_pj = pipeline_dir / "pipeline.json"
     if src_pj.exists():
         shutil.copy2(src_pj, snap / "pipeline.json")
 
-    # Per-agent files
     snap_agents_dir = snap / "agents"
     snap_agents_dir.mkdir()
     for a in agents_def:
         aid = a.get("id")
         if not aid:
             continue
-        src = agents_base / aid
-        if not src.is_dir():
+        src = agent_dirs.get(aid)
+        if src is None or not src.is_dir():
             continue
         dst = snap_agents_dir / aid
         dst.mkdir()
@@ -410,7 +507,6 @@ def _snapshot_run(
         if inputs_src.is_dir():
             shutil.copytree(inputs_src, dst / "03_inputs")
 
-    # events.jsonl slice — bytes appended since run start
     if events_path.exists():
         try:
             with open(events_path, "rb") as f:
@@ -418,19 +514,17 @@ def _snapshot_run(
                 slice_bytes = f.read()
             (snap / "events.jsonl").write_bytes(slice_bytes)
         except OSError:
-            pass  # log file races are non-fatal for the snapshot
+            pass
 
-    # summary.json
     (snap / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
-    # env.snapshot.json — tunables that shape behaviour, no secrets
     env_snap = {
         "claude_bin":            str(config.claude_bin),
         "agent_timeout":         config.agent_timeout,
-        "context_limit":         config.context_limit,
+        "context_limit":         config.model_context_limit,
         "input_budget_fraction": config.input_budget_fraction,
         "input_token_budget":    config.input_token_budget,
         "max_parallel_agents":   config.max_parallel_agents,
@@ -445,26 +539,13 @@ def _snapshot_run(
     return snap
 
 
-def _sum_pipeline_tokens(
-    agents_base: Path,
-    agents_def: list[dict],
-) -> dict[str, Any]:
-    """
-    Walk every agent's 06_status.json, sum the `usage` blocks written
-    by exec_agent(). Agents that ran on an older claude CLI (no usage)
-    or that were bypassed/skipped contribute nothing — `agents_counted`
-    tells the operator how many agents actually reported numbers.
-    """
-    totals = {
-        "total_input":          0,
-        "total_output":         0,
-        "total_cache_creation": 0,
-        "total_cache_read":     0,
-        "total_cost_usd":       0.0,
-        "agents_counted":       0,
-    }
-    for a in agents_def:
-        status_path = agents_base / a["id"] / "06_status.json"
+# ── Pipeline-level token rollup (IMP-07) ──────────────────────────────────────
+
+def _sum_pipeline_tokens(agent_dirs: dict[str, Path]) -> dict[str, Any]:
+    """Walk every agent's 06_status.json and sum its ``usage`` block."""
+    totals = dict(_EMPTY_TOKEN_TOTALS)
+    for adir in agent_dirs.values():
+        status_path = adir / "06_status.json"
         if not status_path.exists():
             continue
         try:
@@ -484,111 +565,69 @@ def _sum_pipeline_tokens(
     return totals
 
 
-def _run_layer(
-    agent_ids: list[str],
-    agents_base: Path,
-    agents_def: list[dict],
-    graph: Any,
-    config: OrchestratorConfig,
-    log: EventLog,
-    run_id: str,
-    parallel: bool,
-) -> tuple[int, int]:
-    """Run one layer.  Returns (agents_run, agents_skipped)."""
-
-    # Build a dep lookup: agent_id → list of dependency IDs
-    dep_map = {a["id"]: a.get("depends_on", []) for a in agents_def}
-
-    run_count  = 0
-    skip_count = 0
-    errors: list[Exception] = []
-
-    def _run_one(aid: str) -> str:
-        deps = dep_map.get(aid, [])
-        if _HAS_NX and graph is not None:
-            from .dag import get_dependencies
-            deps = get_dependencies(graph, aid)
-        return exec_agent(aid, agents_base, deps, config, log, run_id, graph)
-
-    if not parallel or len(agent_ids) == 1:
-        for aid in agent_ids:
-            status = _run_one(aid)
-            if status in ("done",):  run_count  += 1
-            else:                    skip_count += 1
-    else:
-        max_workers = min(len(agent_ids), config.max_parallel_agents)
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_run_one, aid): aid for aid in agent_ids}
-            for fut in as_completed(futures):
-                aid = futures[fut]
-                try:
-                    status = fut.result()
-                    if status in ("done",):  run_count  += 1
-                    else:                    skip_count += 1
-                except Exception as exc:
-                    errors.append(exc)
-
-        if errors:
-            raise errors[0]   # re-raise first failure after all futures settle
-
-    return run_count, skip_count
-
-
 # ── Observability helpers ─────────────────────────────────────────────────────
 
-def pipeline_status(pipeline_dir: Path) -> None:
-    """Print a live status table for all agents."""
-    agents_base = pipeline_dir / "agents"
-    pipeline_json = pipeline_dir / "pipeline.json"
+def pipeline_status(pipeline_dir: Path) -> list[dict[str, Any]]:
+    """
+    Return a list of agent status dicts.
 
-    if not pipeline_json.exists():
-        print("No pipeline.json found.")
-        return
+    DAG agents write 06_status.json into their own source directory.
+    Cyclic agents write into .state/agents/<id>/. Both locations are read.
+    """
+    pipeline_dir = Path(pipeline_dir)
+    result: list[dict[str, Any]] = []
 
-    data = json.loads(pipeline_json.read_text(encoding="utf-8"))
-    agents = data.get("agents", [])
+    pj_path = pipeline_dir / "pipeline.json"
+    if pj_path.exists():
+        try:
+            spec = json.loads(pj_path.read_text(encoding="utf-8"))
+            for agent in spec.get("agents", []):
+                adir = resolve_agent_dir(pipeline_dir, agent)
+                status_file = adir / "06_status.json"
+                if status_file.exists():
+                    try:
+                        result.append(json.loads(status_file.read_text(encoding="utf-8")))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
-    print(f"\n{'AGENT':<28} {'STATUS':<12} {'DUR(s)':<8} {'STARTED':<22} {'OUTPUT'}")
-    print("─" * 90)
-    for a in agents:
-        aid = a["id"]
-        s   = read_status(agents_base / aid)
-        print(
-            f"{aid:<28} "
-            f"{s.get('status','pending'):<12} "
-            f"{str(s.get('duration_s','-')):<8} "
-            f"{s.get('started_at','-'):<22} "
-            f"{s.get('output_bytes', '-')}"
-        )
-    print()
+    agents_state = pipeline_dir / ".state" / "agents"
+    if agents_state.exists():
+        for status_file in sorted(agents_state.glob("*/06_status.json")):
+            try:
+                result.append(json.loads(status_file.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+
+    return result
 
 
-def watch_events(pipeline_dir: Path, follow: bool = True) -> None:
+def watch_events(pipeline_dir: Path, follow: bool = False) -> None:
     """Stream events.jsonl to stdout."""
-    import sys
-    log_path = pipeline_dir / ".state" / "events.jsonl"
+    log_path = Path(pipeline_dir) / ".state" / "events.jsonl"
     if not log_path.exists():
         print("No events.jsonl yet.")
         return
 
-    with open(log_path, encoding="utf-8") as f:
-        for line in f:
+    with open(log_path, encoding="utf-8") as fh:
+        for line in fh:
             if line.strip():
                 _pretty_event(line.strip())
         if follow:
-            import time as _time
             while True:
-                line = f.readline()
+                line = fh.readline()
                 if line and line.strip():
                     _pretty_event(line.strip())
                 else:
-                    _time.sleep(0.5)
+                    time.sleep(0.5)
 
 
 def _pretty_event(raw: str) -> None:
     try:
-        r = json.loads(raw)
-        agent = f" · {r['agent']}" if "agent" in r else ""
+        r     = json.loads(raw)
+        agent = f" · {r['agent']}"    if "agent"    in r else ""
+        agent = f" · {r['agent_id']}" if "agent_id" in r else agent
         print(f"[{r['ts']}] {r['event']}{agent}")
     except Exception:
         print(raw)

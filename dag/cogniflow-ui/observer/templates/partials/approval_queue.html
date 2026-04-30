@@ -1,0 +1,33 @@
+<div class="approval-queue-panel">
+  <div class="aq-header">
+    <span class="aq-title">Approval queue</span>
+    <span class="aq-count">{{ queue | length }} waiting</span>
+  </div>
+  {% if queue %}
+  <div class="aq-list">
+    {% for item in queue %}
+    <div class="aq-row">
+      <div class="aq-row-main">
+        <a class="aq-id" href="#card-{{ item.id }}"
+           onclick="event.preventDefault();
+                    const el=document.getElementById('card-{{ item.id }}');
+                    if(el){el.scrollIntoView({behavior:'smooth',block:'center'}); el.click();}">
+          {{ item.id }}
+        </a>
+        <div class="aq-preview">{{ item.preview or '(no output preview)' }}</div>
+      </div>
+      <div class="aq-route">
+        {% if item.routes.on_reject %}
+        <span class="chip chip-route">On reject → {{ item.routes.on_reject.target }}</span>
+        {% endif %}
+        {% if item.routes.on_approve %}
+        <span class="chip chip-route">On approve → {{ item.routes.on_approve.target }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="aq-empty">No agents are waiting for approval right now.</div>
+  {% endif %}
+</div>

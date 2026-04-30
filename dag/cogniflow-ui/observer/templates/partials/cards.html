@@ -6,6 +6,16 @@
 <!-- DAG SVG update (OOB) -->
 <div id="dag-container" hx-swap-oob="true">{{ dag_svg | safe }}</div>
 
+<!-- Pre-run validation banner (OOB) -->
+<div id="validation-banner-container" hx-swap-oob="true">
+  {% include "partials/_validation_banner.html" %}
+</div>
+
+<!-- Leak banner (OOB) -->
+<div id="leak-banner-container" hx-swap-oob="true">
+  {% include "partials/_leak_banner.html" %}
+</div>
+
 <!-- Cards grid -->
 <div class="cards-grid">
   {% for card in cards %}

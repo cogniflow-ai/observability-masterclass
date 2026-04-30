@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}Cogniflow Configurator{% endblock %}</title>
-  <link rel="stylesheet" href="/static/configurator/style.css?v=3"/>
+  <link rel="stylesheet" href="/static/configurator/style.css?v=2"/>
   <script>
     // Apply sidebar/right-panel collapse state before first paint to avoid flash.
     (function () {
@@ -28,12 +28,12 @@
     <span class="logo-mark">⬡</span>
     <span class="logo-text">COGNIFLOW</span>
     <span class="logo-sub">Configurator</span>
-    <a href="/configurator" class="btn-ghost header-nav-btn">← Pipelines</a>
-    <a href="/" class="btn-ghost header-nav-btn" title="Back to Observer home">⌂ Observer</a>
   </div>
   <div class="header-right">
     {% block header_extra %}{% endblock %}
-    <button class="btn-ghost header-nav-btn" onclick="toggleTheme()" title="Toggle dark mode">◑</button>
+    <a href="/configurator" class="btn-ghost">← Pipelines</a>
+    <a href="/" class="btn-ghost" title="Back to Observer home">⌂ Observer</a>
+    <button class="btn-ghost" onclick="toggleTheme()" title="Toggle dark mode">◑</button>
   </div>
 </header>
 
@@ -59,10 +59,9 @@
         {% block sidebar_pipelines %}{% endblock %}
       </div>
       <div class="sidebar-bottom">
-        {% if settings.enable_pipeline_templates %}
         <a href="/templates" class="sidebar-link">📋 Pipeline Templates</a>
-        {% endif %}
         <a href="/prompt-templates" class="sidebar-link">🧩 Prompt Templates</a>
+        <a href="/vault" class="sidebar-link">🔐 Vault</a>
       </div>
     </div>
   </nav>

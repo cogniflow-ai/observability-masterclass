@@ -1,0 +1,77 @@
+<div class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-title">Run audit · {{ pl_name }}</div>
+    <button class="btn btn-sm"
+            onclick="document.getElementById('detail-container').innerHTML=''">
+      ✕ Close
+    </button>
+  </div>
+
+  {% if not vault_available %}
+  <div class="empty-state">
+    No vault database found at <code>pipelines/secrets.db</code>. Audit rows
+    are written by the orchestrator only when the vault is in use.
+  </div>
+  {% else %}
+
+  <form class="audit-filter" method="get"
+        hx-get="/pipelines/{{ name }}/audit"
+        hx-target="#detail-container"
+        hx-swap="innerHTML">
+    <label>Run:
+      <select name="run">
+        <option value="">(latest with audit)</option>
+        {% for r in runs %}
+        <option value="{{ r }}" {% if r == current_run %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Direction:
+      <select name="direction">
+        <option value="" {% if not direction %}selected{% endif %}>(any)</option>
+        <option value="outbound" {% if direction == 'outbound' %}selected{% endif %}>outbound</option>
+        <option value="inbound"  {% if direction == 'inbound'  %}selected{% endif %}>inbound</option>
+        <option value="missing"  {% if direction == 'missing'  %}selected{% endif %}>missing</option>
+        <option value="leaked"   {% if direction == 'leaked'   %}selected{% endif %}>leaked</option>
+      </select>
+    </label>
+    <label>Agent:
+      <input type="text" name="agent" value="{{ agent }}" placeholder="any" />
+    </label>
+    <button type="submit" class="btn btn-sm">Apply</button>
+  </form>
+
+  <div class="audit-summary">
+    <span class="audit-stat outbound"><strong>{{ summary.outbound }}</strong> outbound</span>
+    <span class="audit-stat inbound"><strong>{{ summary.inbound }}</strong> inbound</span>
+    <span class="audit-stat missing"><strong>{{ summary.missing }}</strong> missing</span>
+    <span class="audit-stat leaked"><strong>{{ summary.leaked }}</strong> leaked</span>
+  </div>
+
+  {% if rows %}
+  <table class="audit-table">
+    <thead>
+      <tr>
+        <th>ts</th><th>agent</th><th>dir</th><th>secret</th>
+        <th>file</th><th class="r">occ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="audit-row dir-{{ r.direction }}">
+        <td class="ts">{{ r.ts }}</td>
+        <td>{{ r.agent_id }}</td>
+        <td><span class="chip chip-dir-{{ r.direction }}">{{ r.direction }}</span></td>
+        <td><code>{{ r.secret_name }}</code></td>
+        <td>{{ r.file }}</td>
+        <td class="r">{{ r.occurrences }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No audit rows match these filters.</div>
+  {% endif %}
+
+  {% endif %}
+</div>

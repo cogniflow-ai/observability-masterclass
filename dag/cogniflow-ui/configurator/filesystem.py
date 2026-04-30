@@ -4,7 +4,6 @@ All reads and writes go through here. No other module touches the disk directly.
 """
 from __future__ import annotations
 import json
-import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,8 +104,6 @@ def get_pipeline(name: str) -> dict | None:
         data = json.loads(pj.read_text(encoding="utf-8"))
     except Exception:
         return None
-    data["_dir"] = name
-    data["_running"] = _is_running(d)
     return data
 
 
@@ -380,62 +377,6 @@ def _read_prompt_template(agent_type: str, filename: str) -> str:
         except Exception:
             return ""
     return ""
-
-
-_AGENT_ID_RE = re.compile(r"^\d{3}_[a-z0-9_]+$")
-
-
-def rename_agent(pipeline_name: str, old_id: str,
-                 new_id: str) -> tuple[bool, str]:
-    """Rename an agent: move its workspace directory, rewrite its `id` in
-    pipeline.json, and update every `depends_on` and edge that referenced
-    it. No-op when old_id == new_id. Validates new_id format and uniqueness
-    before any filesystem mutation."""
-    if not new_id or new_id == old_id:
-        return True, "ok"
-    if not _AGENT_ID_RE.match(new_id):
-        return False, (f"New agent id '{new_id}' must match NNN_name "
-                       f"(three digits, underscore, lowercase letters/digits/underscores).")
-    d = settings.pipelines_root / pipeline_name
-    pj = d / "pipeline.json"
-    if not pj.exists():
-        return False, "pipeline.json not found"
-    data = json.loads(pj.read_text(encoding="utf-8"))
-    agents = data.get("agents", [])
-    ids = {a.get("id") for a in agents if isinstance(a, dict)}
-    if new_id in ids:
-        return False, f"Agent id '{new_id}' already exists"
-    if old_id not in ids:
-        return False, f"Agent '{old_id}' not found"
-
-    old_dir = d / "agents" / old_id
-    new_dir = d / "agents" / new_id
-    if new_dir.exists():
-        return False, f"Target directory 'agents/{new_id}' already exists"
-    if old_dir.exists():
-        old_dir.rename(new_dir)
-
-    for a in agents:
-        if not isinstance(a, dict):
-            continue
-        if a.get("id") == old_id:
-            a["id"] = new_id
-        deps = a.get("depends_on")
-        if isinstance(deps, list):
-            a["depends_on"] = [new_id if x == old_id else x for x in deps]
-    for e in data.get("edges", []):
-        if not isinstance(e, dict):
-            continue
-        if e.get("from") == old_id:
-            e["from"] = new_id
-        if e.get("to") == old_id:
-            e["to"] = new_id
-
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    old = pj.read_text(encoding="utf-8")
-    ver.save_version(d, "pipeline.json", old, f"Rename agent {old_id} -> {new_id}")
-    atomic_write_json(pj, data)
-    return True, "ok"
 
 
 def update_agent(pipeline_name: str, agent_id: str, updates: dict) -> tuple[bool, str]:
@@ -745,20 +686,15 @@ PROMPT_TEMPLATE_FILES = ("01_system.md", "02_prompt.md")
 def list_prompt_templates() -> list[dict]:
     """Return one entry per agent-type directory under prompt_templates_dir.
     The reserved 'meta' directory is excluded — it holds the specialization
-    meta-prompts, not an agent type. Directories whose name is not in
-    settings.agent_types are also excluded, so removing a type from config
-    immediately hides any leftover folder from the UI."""
+    meta-prompts, not an agent type."""
     root = settings.prompt_templates_dir
     if not root.exists():
         return []
-    allowed = set(settings.agent_types)
     result = []
     for d in sorted(root.iterdir()):
         if not d.is_dir() or d.name.startswith("."):
             continue
         if d.name == META_DIR_NAME:
-            continue
-        if d.name not in allowed:
             continue
         files = []
         for fname in PROMPT_TEMPLATE_FILES:
@@ -894,3 +830,216 @@ def write_type_description(agent_type: str, content: str,
             pass
     atomic_write(fp, content)
     return True, "ok"
+
+
+# ── Per-agent 00_config.json (input_schema, output_schema, approval_routes) ──
+
+def _agent_dir(pipeline_name: str, agent_id: str) -> Path:
+    """The Configurator authors agents under `agents/<id>/`. The orchestrator
+    accepts both that v1 layout and the v3.5 implicit layout — we stay with
+    the v1 layout so existing pipelines keep working unchanged."""
+    return settings.pipelines_root / pipeline_name / "agents" / agent_id
+
+
+def read_agent_config(pipeline_name: str, agent_id: str) -> dict:
+    """Read <pipeline>/agents/<agent_id>/00_config.json. Returns {} when absent
+    or malformed — the per-agent config is optional everywhere it's used."""
+    fp = _agent_dir(pipeline_name, agent_id) / "00_config.json"
+    if not fp.exists():
+        return {}
+    try:
+        return json.loads(fp.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def write_agent_config(pipeline_name: str, agent_id: str,
+                       data: dict, message: str = "") -> tuple[bool, str]:
+    """Write 00_config.json atomically, snapshotting the previous content.
+
+    Empty top-level blocks (`input_schema`, `output_schema`, `approval_routes`)
+    are filtered out so cleared panels don't leave `{}` on disk.
+    """
+    d = settings.pipelines_root / pipeline_name
+    if not (d / "pipeline.json").exists():
+        return False, "pipeline.json not found"
+    cleaned = _strip_empty_blocks(data)
+    rel = f"agents/{agent_id}/00_config.json"
+    fp = d / rel
+    if fp.exists():
+        try:
+            ver.save_version(d, rel, fp.read_text(encoding="utf-8"),
+                             message or "Update agent config")
+        except Exception:
+            pass
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    if not cleaned:
+        # Nothing meaningful to persist — remove file if it exists, else no-op.
+        if fp.exists():
+            try:
+                fp.unlink()
+            except Exception:
+                pass
+        return True, "ok"
+    atomic_write_json(fp, cleaned)
+    return True, "ok"
+
+
+def _strip_empty_blocks(data: dict) -> dict:
+    """Drop input_schema/output_schema/approval_routes when they're empty,
+    rather than writing `{}` placeholders that the Orchestrator would then
+    have to special-case."""
+    out: dict = {}
+    for k, v in (data or {}).items():
+        if k in ("input_schema", "output_schema") and isinstance(v, dict):
+            cleaned = {kk: vv for kk, vv in v.items()
+                       if vv not in (None, "", [], {})}
+            if cleaned:
+                out[k] = cleaned
+            continue
+        if k == "approval_routes" and isinstance(v, dict):
+            cleaned: dict = {}
+            for rk in ("on_reject", "on_approve"):
+                rv = v.get(rk)
+                if isinstance(rv, dict) and rv.get("target"):
+                    cleaned[rk] = rv
+            if cleaned:
+                out[k] = cleaned
+            continue
+        if v in (None, "", [], {}):
+            continue
+        out[k] = v
+    return out
+
+
+# ── Pipeline-level config.json (orchestrator runtime config) ─────────────────
+
+def read_pipeline_config(pipeline_name: str) -> dict:
+    """Read <pipeline>/config.json. Returns {} when absent or malformed."""
+    fp = settings.pipelines_root / pipeline_name / "config.json"
+    if not fp.exists():
+        return {}
+    try:
+        return json.loads(fp.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def write_pipeline_config(pipeline_name: str, data: dict,
+                          message: str = "") -> tuple[bool, str]:
+    """Atomically write <pipeline>/config.json, snapshotting the previous
+    content into version history. Used by the Approval and Secrets sections
+    of the pipeline-settings panel."""
+    d = settings.pipelines_root / pipeline_name
+    if not (d / "pipeline.json").exists():
+        return False, "pipeline.json not found"
+    rel = "config.json"
+    fp = d / rel
+    if fp.exists():
+        try:
+            ver.save_version(d, rel, fp.read_text(encoding="utf-8"),
+                             message or "Update pipeline config")
+        except Exception:
+            pass
+    atomic_write_json(fp, data)
+    return True, "ok"
+
+
+def merge_pipeline_config_section(pipeline_name: str, section: str,
+                                  patch: dict, message: str = "") -> tuple[bool, str]:
+    """Merge *patch* into config.json[section], leaving every other section
+    untouched. Cleaner than read-modify-write at every call site."""
+    cfg = read_pipeline_config(pipeline_name)
+    cur = cfg.get(section)
+    if not isinstance(cur, dict):
+        cur = {}
+    cur.update({k: v for k, v in (patch or {}).items()})
+    cfg[section] = cur
+    return write_pipeline_config(pipeline_name, cfg, message=message)
+
+
+# ── .gitignore verification (configurator does NOT auto-write it) ────────────
+
+GITIGNORE_REQUIRED_LINES = (
+    ".state/",
+    "**/.state/",
+    "pipelines/secrets.db",
+    "**/pipelines/secrets.db",
+)
+
+
+def gitignore_status(pipeline_name: str) -> dict:
+    """Return {present: bool, missing: [str, ...]} so the UI can surface a
+    nudge banner when `.state/` or the vault file isn't covered. The
+    orchestrator will create/append .gitignore on every run; the Configurator
+    only checks and reports."""
+    fp = settings.pipelines_root / pipeline_name / ".gitignore"
+    if not fp.exists():
+        return {"present": False, "missing": list(GITIGNORE_REQUIRED_LINES)}
+    text = fp.read_text(encoding="utf-8", errors="ignore")
+    missing = [ln for ln in GITIGNORE_REQUIRED_LINES if ln not in text]
+    return {"present": True, "missing": missing}
+
+
+def append_gitignore_lines(pipeline_name: str, lines: list[str]) -> None:
+    """Append missing lines to .gitignore. Called only when the user clicks
+    'Fix .gitignore' on the migration / pipeline-settings banner — never
+    silently. The orchestrator will reach the same end state on its next
+    run, but this lets a Configurator-only workflow stay clean."""
+    fp = settings.pipelines_root / pipeline_name / ".gitignore"
+    existing = ""
+    if fp.exists():
+        try:
+            existing = fp.read_text(encoding="utf-8")
+        except Exception:
+            existing = ""
+    to_add = [ln for ln in lines if ln and ln not in existing]
+    if not to_add:
+        return
+    body = existing
+    if body and not body.endswith("\n"):
+        body += "\n"
+    body += "# Cogniflow — added by Configurator\n"
+    for ln in to_add:
+        body += ln + "\n"
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(fp, body)
+
+
+# ── Substitutions → vault migration helper ───────────────────────────────────
+
+def rewrite_substitution_marker(pipeline_name: str, key: str) -> int:
+    """For a single migrated substitution key, walk every authored prompt
+    file under the pipeline and rewrite `{{KEY}}` → `<<secret:KEY>>`. Returns
+    the count of files that were modified.
+
+    Each modification is versioned with a 'Migrate substitution KEY' note so
+    the user can see the diff and revert one file at a time if needed.
+    """
+    d = settings.pipelines_root / pipeline_name
+    pattern = "{{" + key + "}}"
+    replacement = f"<<secret:{key}>>"
+    n = 0
+    # Walk authored prompts only — never .state/, never .configurator/.
+    for agent_dir in (d / "agents").iterdir() if (d / "agents").exists() else []:
+        if not agent_dir.is_dir():
+            continue
+        for fname in ("01_system.md", "02_prompt.md"):
+            fp = agent_dir / fname
+            if not fp.exists():
+                continue
+            try:
+                text = fp.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if pattern not in text:
+                continue
+            new_text = text.replace(pattern, replacement)
+            rel = f"agents/{agent_dir.name}/{fname}"
+            try:
+                ver.save_version(d, rel, text, f"Migrate substitution {key}")
+            except Exception:
+                pass
+            atomic_write(fp, new_text)
+            n += 1
+    return n

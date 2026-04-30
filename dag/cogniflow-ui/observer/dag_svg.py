@@ -13,16 +13,19 @@ from typing import Optional
 # ── Colour map (fill, stroke, text) ───────────────────────────────────────
 
 STATUS_COLOURS: dict[str, tuple[str, str, str]] = {
-    "pending":           ("#E8E6DF", "#888780", "#444441"),
-    "running":           ("#DCEEFB", "#1566A9", "#0C447C"),
-    "done":              ("#D6ECC4", "#38690F", "#27500A"),
-    "failed":            ("#FAD9D9", "#B02929", "#791F1F"),
-    "timeout":           ("#FAE8D0", "#9A5800", "#633806"),
-    "schema_invalid":    ("#FAD9D9", "#B02929", "#791F1F"),
-    "awaiting_approval": ("#E8E4FB", "#5044B7", "#3C3489"),
-    "bypassed":          ("#E8E6DF", "#888780", "#444441"),
-    "rejected":          ("#FAE8D0", "#9A5800", "#633806"),
-    "cancelled":         ("#FAE8D0", "#9A5800", "#633806"),
+    "pending":              ("#E8E6DF", "#888780", "#444441"),
+    "running":              ("#DCEEFB", "#1566A9", "#0C447C"),
+    "done":                 ("#D6ECC4", "#38690F", "#27500A"),
+    "failed":               ("#FAD9D9", "#B02929", "#791F1F"),
+    "timeout":              ("#FAE8D0", "#9A5800", "#633806"),
+    "schema_invalid":       ("#FAD9D9", "#B02929", "#791F1F"),
+    "input_schema_failed":  ("#FAD9D9", "#B02929", "#791F1F"),
+    "output_schema_failed": ("#FAD9D9", "#B02929", "#791F1F"),
+    "awaiting_approval":    ("#E8E4FB", "#5044B7", "#3C3489"),
+    "awaiting_feedback":    ("#D8F0EE", "#0D7480", "#073C44"),
+    "bypassed":             ("#E8E6DF", "#888780", "#444441"),
+    "rejected":             ("#FAE8D0", "#9A5800", "#633806"),
+    "cancelled":            ("#FAE8D0", "#9A5800", "#633806"),
 }
 DEFAULT_COLOURS = ("#E6F1FB", "#185FA5", "#0C447C")
 
@@ -185,16 +188,19 @@ def build_dag_svg(
             label = label[:18] + "…"
 
         status_disp = {
-            "pending":           "Waiting",
-            "running":           "Running",
-            "done":              "Complete",
-            "failed":            "Failed",
-            "timeout":           "Timed out",
-            "awaiting_approval": "Needs approval",
-            "bypassed":          "Skipped",
-            "schema_invalid":    "Output rejected",
-            "rejected":          "Rejected",
-            "cancelled":         "Cancelled",
+            "pending":              "Waiting",
+            "running":              "Running",
+            "done":                 "Complete",
+            "failed":               "Failed",
+            "timeout":              "Timed out",
+            "awaiting_approval":    "Needs approval",
+            "awaiting_feedback":    "Awaiting feedback",
+            "bypassed":             "Skipped",
+            "schema_invalid":       "Output rejected",
+            "input_schema_failed":  "Input rejected",
+            "output_schema_failed": "Output rejected",
+            "rejected":             "Rejected",
+            "cancelled":            "Cancelled",
         }.get(status, status)
 
         g_classes = "dag-agent" + (" dag-running" if status == "running" else "")

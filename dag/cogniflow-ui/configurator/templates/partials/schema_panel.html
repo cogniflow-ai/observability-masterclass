@@ -1,0 +1,110 @@
+{# Per-agent input + output schema editor.
+   Two side-by-side panels with identical controls; the only difference is
+   the upstream-selector / static-inputs toggle on the input side. #}
+
+{% if save_ok is defined and save_ok %}<div class="success-banner">✓ Schemas saved.</div>{% endif %}
+{% if save_error is defined and save_error %}<div class="error-banner">⚠ {{ save_error }}</div>{% endif %}
+
+{% set in_modes  = (agent_cfg.get('input_schema',  {}) or {}).get('mode', []) %}
+{% set out_modes = (agent_cfg.get('output_schema', {}) or {}).get('mode', []) %}
+{% if in_modes is string  %}{% set in_modes  = [in_modes]  %}{% endif %}
+{% if out_modes is string %}{% set out_modes = [out_modes] %}{% endif %}
+{% set in_schema  = agent_cfg.get('input_schema',  {}) or {} %}
+{% set out_schema = agent_cfg.get('output_schema', {}) or {} %}
+
+<div class="schema-panel">
+  <h4 class="panel-h">Schemas — <code>{{ agent_id }}</code></h4>
+  <p class="muted small">
+    Optional input/output checks evaluated by the runtime. Pulled live from
+    <code>orchestrator.schema.VALID_MODES</code>: {{ valid_modes | join(', ') }}.
+  </p>
+
+  <form hx-post="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}/schema"
+        hx-target="#right-panel-content" hx-swap="innerHTML"
+        class="schema-form">
+
+    <div class="schema-grid">
+      <fieldset class="schema-side" data-side="input">
+        <legend>Input schema</legend>
+        <label class="muted small">Modes</label>
+        <div class="mode-checks">
+          {% for m in valid_modes %}
+          <label class="mode-check">
+            <input type="checkbox" name="in_mode" value="{{ m }}"
+                   {% if m in in_modes %}checked{% endif %}/>
+            <span>{{ m }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <label class="muted small">Sections (one per line — case-sensitive)</label>
+        <textarea name="in_sections" rows="3"
+                  placeholder="Plan&#10;Risks&#10;Conclusion"
+        >{{ (in_schema.get('sections') or []) | join('\n') }}</textarea>
+
+        <label class="muted small">Contains tokens (one per line)</label>
+        <textarea name="in_contains" rows="2"
+        >{{ (in_schema.get('contains') or []) | join('\n') }}</textarea>
+
+        <label class="muted small">JSON schema (used when <code>json</code> mode is on)</label>
+        <textarea name="in_json_schema" rows="6" class="mono"
+                  placeholder='{"type":"object","required":["plan"]}'
+        >{% if in_schema.get('json_schema') %}{{ in_schema.json_schema | tojson(indent=2) }}{% endif %}</textarea>
+
+        <label class="muted small">Require upstream — leave empty for ALL upstreams</label>
+        <select name="in_require_upstream" multiple size="4" class="multi-pick">
+          {% set req_up = in_schema.get('require_upstream') or [] %}
+          {% for dep in (agent.get('depends_on') or []) %}
+          <option value="{{ dep }}" {% if dep in req_up %}selected{% endif %}>{{ dep }}</option>
+          {% endfor %}
+        </select>
+        <small class="muted">Constrained to this agent's <code>depends_on</code>.</small>
+
+        <label class="checkbox-row">
+          <input type="checkbox" name="in_static_required" value="true"
+                 {% if in_schema.get('static_inputs_required') %}checked{% endif %}/>
+          <span>Static inputs must be present and non-empty</span>
+        </label>
+      </fieldset>
+
+      <fieldset class="schema-side" data-side="output">
+        <legend>Output schema</legend>
+        <label class="muted small">Modes</label>
+        <div class="mode-checks">
+          {% for m in valid_modes %}
+          <label class="mode-check">
+            <input type="checkbox" name="out_mode" value="{{ m }}"
+                   {% if m in out_modes %}checked{% endif %}/>
+            <span>{{ m }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <label class="muted small">Sections (one per line — case-sensitive)</label>
+        <textarea name="out_sections" rows="3"
+                  placeholder="Findings&#10;Recommendations"
+        >{{ (out_schema.get('sections') or []) | join('\n') }}</textarea>
+
+        <label class="muted small">Contains tokens (one per line)</label>
+        <textarea name="out_contains" rows="2"
+        >{{ (out_schema.get('contains') or []) | join('\n') }}</textarea>
+
+        <label class="muted small">JSON schema (used when <code>json</code> mode is on)</label>
+        <textarea name="out_json_schema" rows="6" class="mono"
+                  placeholder='{"type":"object","required":["decision"]}'
+        >{% if out_schema.get('json_schema') %}{{ out_schema.json_schema | tojson(indent=2) }}{% endif %}</textarea>
+
+        <small class="muted">Output is always evaluated against <em>all</em> selected modes.</small>
+      </fieldset>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary btn-sm">Save Schemas</button>
+      <button type="button" class="btn-ghost btn-sm"
+              hx-get="/pipeline/{{ pipeline_name }}/agent/{{ agent_id }}"
+              hx-target="#right-panel-content" hx-swap="innerHTML">
+        ← Back to Metadata
+      </button>
+    </div>
+  </form>
+</div>

@@ -37,7 +37,7 @@ The installer places `claude.exe` in your npm global bin directory, typically:
 C:\Users\<you>\AppData\Roaming\npm\claude.cmd
 ```
 
-The orchestrator searches common install paths automatically. If it fails to find the binary, set the `CLAUDE_BIN` environment variable (see Step 4).
+The orchestrator searches common install paths automatically. If it fails to find the binary, set `claude.binary` in your pipeline's `config.json` (see Step 4).
 
 ### Verify authentication
 
@@ -72,14 +72,14 @@ pip install pytest pytest-cov
 ## Step 3 — Verify the installation
 
 ```bash
-python cli.py validate pipelines/ai_coding_2026
+python cli.py validate pipelines/research_dag
 ```
 
 Expected output:
 ```
 ✓ pipeline.json is valid
-  Name   : 7-agent
-  Agents : 7
+  Name  : research-article-pipeline
+  Agents: 3
 ```
 
 If this passes, you are ready to run.
@@ -88,48 +88,36 @@ If this passes, you are ready to run.
 
 ## Step 4 — Configure (optional)
 
-All configuration is via environment variables. Copy the example file:
+Every pipeline directory has its own `config.json`. Missing file → all
+defaults. Missing sections/keys → defaults for those values. See the
+[README.md](README.md#configuration--pipeline_dirconfigjson) for the full
+reference.
 
-```bash
-cp .env.example .env
-```
+Minimal example — set the Claude binary path if auto-detection fails:
 
-Then edit `.env`. The most important setting is `CLAUDE_BIN` if auto-detection fails:
-
-```bash
-# Windows example:
-CLAUDE_BIN=C:\Users\yourname\AppData\Roaming\npm\claude.cmd
-
-# macOS example:
-CLAUDE_BIN=/usr/local/bin/claude
-```
-
-Other useful settings:
-
-```bash
-AGENT_TIMEOUT=300        # seconds per agent before killing (default: 300)
-MODEL_CONTEXT_LIMIT=180000  # token window of your Claude model
-VERBOSE=1                # set to 0 to reduce output
-```
-
-To load `.env` before running:
-
-```bash
-# macOS / Linux
-export $(cat .env | grep -v '#' | xargs)
-
-# Windows PowerShell
-Get-Content .env | Where-Object { $_ -notmatch '^#' } | ForEach-Object {
-    $name, $value = $_.Split('=', 2); [Environment]::SetEnvironmentVariable($name, $value)
+```json
+{
+  "claude": {
+    "binary": "C:\\Users\\yourname\\AppData\\Roaming\\npm\\claude.cmd"
+  },
+  "execution": {
+    "agent_timeout_s":     300,
+    "max_parallel_agents": 8,
+    "max_retries":         3,
+    "retry_delays_s":      [3, 3, 10]
+  }
 }
 ```
+
+The `--timeout` and `--claude-bin` CLI flags override config.json values
+at run time.
 
 ---
 
 ## Step 5 — Run the sample pipeline
 
 ```bash
-python cli.py run pipelines/7-agent
+python cli.py run pipelines/research_dag
 ```
 
 The pipeline will:
@@ -144,7 +132,7 @@ Outputs are written to `pipelines/7-agent/.state/agents/<agent_id>/05_output.md`
 To read the final article:
 
 ```bash
-python cli.py inspect pipelines/ai_coding_2026 --agent 007_editor --file output
+python cli.py inspect pipelines/research_dag --agent 007_editor --file output
 ```
 
 ---
@@ -152,36 +140,36 @@ python cli.py inspect pipelines/ai_coding_2026 --agent 007_editor --file output
 ## Troubleshooting
 
 ### "claude: command not found"
-The `claude` binary is not in PATH. Set `CLAUDE_BIN` to the full path (see Step 4).
+The `claude` binary is not in PATH. Set `claude.binary` in `config.json` to the full path (see Step 4).
 
 ### "Error: not authenticated" or similar auth error
 Run `claude` interactively to complete login, then retry.
 
 ### Agent fails immediately (exit code 1, empty output)
-- Check the prompt files exist: `python cli.py inspect pipelines/ai_coding_2026 --agent 001_researcher_tools --file prompt`
+- Check the prompt files exist: `python cli.py inspect pipelines/research_dag --agent 001_researcher_tools --file prompt`
 - Check Claude works standalone: `claude -p "hello"`
 - Check your subscription is active at claude.ai
 
 ### Pipeline stalls / one agent hangs
 The default timeout is 300 seconds. Increase it for complex research tasks:
 ```bash
-python cli.py run pipelines/ai_coding_2026 --timeout 600
+python cli.py run pipelines/research_dag --timeout 600
 ```
 
 ### Resume after interruption
 Re-run the same command. Completed agents are skipped automatically:
 ```bash
-python cli.py run pipelines/ai_coding_2026
+python cli.py run pipelines/research_dag
 ```
 
 ### Reset and re-run from scratch
 ```bash
-python cli.py reset pipelines/ai_coding_2026
-python cli.py run   pipelines/ai_coding_2026
+python cli.py reset pipelines/research_dag
+python cli.py run   pipelines/research_dag
 ```
 
 ### Reset a single agent
 ```bash
-python cli.py reset pipelines/ai_coding_2026 --agent 004_synthesizer
-python cli.py run   pipelines/ai_coding_2026
+python cli.py reset pipelines/research_dag --agent 004_synthesizer
+python cli.py run   pipelines/research_dag
 ```

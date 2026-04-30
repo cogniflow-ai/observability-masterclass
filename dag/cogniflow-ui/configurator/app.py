@@ -1,19 +1,20 @@
 """Cogniflow Configurator — FastAPI router.
 
 Exposes `router` (APIRouter) and `templates` so the parent app
-(dag/cogniflow-ui/app.py) can mount it alongside the observer.
+(cogniflow-ui_v3.5/app.py) can mount it alongside the observer.
 """
 from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import filesystem as fs
+from . import orchestrator_bridge as ob
 from . import versioning as ver
 from .config import settings
 from .dag_svg import build_svg
@@ -114,7 +115,6 @@ async def pipeline_view(request: Request, name: str, tab: str = "graph",
         "all_pipelines": fs.list_pipelines(),
         "json_content": json_content,
         "claude_bin_found": bool(settings.claude_bin),
-        "enable_specialize": settings.enable_specialize,
         "orientation": data.get("graph_orientation", "vertical"),
         "global_taglines_system": global_default_taglines("system"),
         "global_taglines_task":   global_default_taglines("task"),
@@ -149,9 +149,9 @@ async def create_pipeline(
             "templates": fs.list_templates(),
             "error": f"Pipeline '{name}' already exists",
         })
-    effective_template = template_name if settings.enable_pipeline_templates else ""
     fs.create_pipeline(name, display_name, description, graph_mode,
-                       category, effective_template or None)
+                       category, template_name or None)
+    from fastapi.responses import RedirectResponse
     return RedirectResponse(f"/pipeline/{name}", status_code=303)
 
 
@@ -283,18 +283,10 @@ async def topology_update_agent(
     depends_on: Annotated[str, Form()] = "",
     timeout_s: Annotated[str, Form()] = "",
     require_approval: Annotated[str, Form()] = "false",
-    new_agent_id: Annotated[str, Form()] = "",
 ):
-    effective_id = agent_id
-    new_id = (new_agent_id or "").strip()
-    if new_id and new_id != agent_id:
-        ok, msg = fs.rename_agent(name, agent_id, new_id)
-        if not ok:
-            return await _topology_partial(request, name, error=msg)
-        effective_id = new_id
     deps = [d.strip() for d in depends_on.split(",") if d.strip()]
     updates = {
-        "name": agent_name.strip() or effective_id,
+        "name": agent_name.strip() or agent_id,
         "type": agent_type,
         "category": category,
         "description": description,
@@ -306,7 +298,7 @@ async def topology_update_agent(
             updates["timeout_s"] = int(timeout_s)
         except ValueError:
             pass
-    ok, msg = fs.update_agent(name, effective_id, updates)
+    ok, msg = fs.update_agent(name, agent_id, updates)
     return await _topology_partial(request, name, error=None if ok else msg)
 
 
@@ -323,7 +315,6 @@ async def _topology_partial(request: Request, name: str, error: str | None):
         "svg": svg,
         "error": error,
         "claude_bin_found": bool(settings.claude_bin),
-        "enable_specialize": settings.enable_specialize,
         "agent_ids": [a["id"] for a in (data or {}).get("agents", [])
                       if isinstance(a, dict)],
     })
@@ -414,38 +405,6 @@ async def graph_json_save(
 # §9  Agent detail / metadata
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/pipeline/{name}/agent/new", response_class=HTMLResponse)
-async def agent_create(
-    request: Request, name: str,
-    agent_id: Annotated[str, Form()],
-    agent_name: Annotated[str, Form()] = "",
-    agent_type: Annotated[str, Form()] = "worker",
-    category: Annotated[str, Form()] = "",
-    description: Annotated[str, Form()] = "",
-    depends_on: Annotated[str, Form()] = "",
-    template_agent: Annotated[str, Form()] = "",
-):
-    deps = [d.strip() for d in depends_on.split(",") if d.strip()]
-    agent = {
-        "id": agent_id.strip(),
-        "name": agent_name.strip() or agent_id.strip(),
-        "type": agent_type,
-        "category": category,
-        "description": description,
-        "depends_on": deps,
-        "require_approval": False,
-    }
-    ok, msg = fs.add_agent(name, agent)
-    if ok:
-        return RedirectResponse(
-            f"/pipeline/{name}?tab=agents", status_code=303)
-    return _t(request, "partials/agent_detail.html", {
-        "pipeline_name": name, "agent": agent,
-        "agent_id": agent_id, "all_agent_ids": [],
-        "labels_data": {}, "error": msg,
-    })
-
-
 @router.get("/pipeline/{name}/agent/{agent_id}", response_class=HTMLResponse)
 async def agent_detail(request: Request, name: str, agent_id: str):
     agent = fs.get_agent(name, agent_id)
@@ -505,9 +464,43 @@ async def agent_save_meta(
     })
 
 
+@router.post("/pipeline/{name}/agent/new", response_class=HTMLResponse)
+async def agent_create(
+    request: Request, name: str,
+    agent_id: Annotated[str, Form()],
+    agent_name: Annotated[str, Form()] = "",
+    agent_type: Annotated[str, Form()] = "worker",
+    category: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    depends_on: Annotated[str, Form()] = "",
+    template_agent: Annotated[str, Form()] = "",
+):
+    deps = [d.strip() for d in depends_on.split(",") if d.strip()]
+    agent = {
+        "id": agent_id.strip(),
+        "name": agent_name.strip() or agent_id.strip(),
+        "type": agent_type,
+        "category": category,
+        "description": description,
+        "depends_on": deps,
+        "require_approval": False,
+    }
+    ok, msg = fs.add_agent(name, agent)
+    from fastapi.responses import RedirectResponse
+    if ok:
+        return RedirectResponse(
+            f"/pipeline/{name}?tab=agents", status_code=303)
+    return _t(request, "partials/agent_detail.html", {
+        "pipeline_name": name, "agent": agent,
+        "agent_id": agent_id, "all_agent_ids": [],
+        "labels_data": {}, "error": msg,
+    })
+
+
 @router.post("/pipeline/{name}/agent/{agent_id}/delete", response_class=HTMLResponse)
 async def agent_delete(request: Request, name: str, agent_id: str):
     fs.remove_agent(name, agent_id)
+    from fastapi.responses import RedirectResponse
     return RedirectResponse(f"/pipeline/{name}?tab=agents", status_code=303)
 
 
@@ -831,8 +824,6 @@ async def settings_validate_taglines_save(
 
 @router.get("/templates", response_class=HTMLResponse)
 async def templates_list(request: Request):
-    if not settings.enable_pipeline_templates:
-        return RedirectResponse("/configurator", status_code=303)
     return _t(request, "templates.html", {
         "templates": fs.list_templates(),
     })
@@ -849,6 +840,7 @@ async def template_save(
 ):
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     fs.save_as_template(pipeline_name, tname, description, tag_list, author)
+    from fastapi.responses import RedirectResponse
     return RedirectResponse("/templates", status_code=303)
 
 
@@ -876,9 +868,6 @@ async def download_svg(name: str):
 async def prompt_templates_list(request: Request, selected: str = ""):
     types = fs.list_prompt_templates()
     # `selected` can be "_meta" (the meta-prompt editor) or any regular type.
-    # When the Specialize feature is disabled, the meta editor is not reachable.
-    if selected == "_meta" and not settings.enable_specialize:
-        return RedirectResponse("/prompt-templates", status_code=303)
     if not selected and types:
         selected = types[0]["type"]
     is_meta = selected == "_meta"
@@ -911,7 +900,6 @@ async def prompt_templates_list(request: Request, selected: str = ""):
         "type_description": type_description,
         "templates_dir": str(settings.prompt_templates_dir),
         "claude_bin_found": bool(settings.claude_bin),
-        "enable_specialize": settings.enable_specialize,
     })
 
 
@@ -920,6 +908,7 @@ async def prompt_template_new(
     request: Request,
     type_name: Annotated[str, Form()],
 ):
+    from fastapi.responses import RedirectResponse
     ok, msg = fs.create_prompt_template_type(type_name.strip().lower())
     if not ok:
         types = fs.list_prompt_templates()
@@ -932,7 +921,6 @@ async def prompt_template_new(
             "type_description": "",
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
-            "enable_specialize": settings.enable_specialize,
             "error": msg,
         })
     return RedirectResponse(f"/prompt-templates?selected={type_name}",
@@ -941,6 +929,7 @@ async def prompt_template_new(
 
 @router.post("/prompt-templates/{agent_type}/delete", response_class=HTMLResponse)
 async def prompt_template_delete(request: Request, agent_type: str):
+    from fastapi.responses import RedirectResponse
     if agent_type == "_meta":
         return HTMLResponse(
             '<div class="error-banner">The meta prompts cannot be deleted.</div>',
@@ -955,6 +944,7 @@ async def prompt_template_meta_save(
     content: Annotated[str, Form()],
     message: Annotated[str, Form()] = "",
 ):
+    from fastapi.responses import RedirectResponse
     if filename not in ("01_system.md", "02_prompt.md"):
         return HTMLResponse(
             f'<div class="error-banner">Invalid meta file: {filename}</div>',
@@ -978,7 +968,6 @@ async def prompt_template_meta_save(
             "type_description": "",
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
-            "enable_specialize": settings.enable_specialize,
             "error": f"{filename}: {tag_error}",
         })
     fs.write_meta_prompt(filename, content, message)
@@ -992,6 +981,7 @@ async def prompt_template_description_save(
     content: Annotated[str, Form()],
     message: Annotated[str, Form()] = "",
 ):
+    from fastapi.responses import RedirectResponse
     if agent_type == "_meta":
         return HTMLResponse(
             '<div class="error-banner">The meta entry has no type description.</div>',
@@ -1010,6 +1000,7 @@ async def prompt_template_save(
     content: Annotated[str, Form()],
     message: Annotated[str, Form()] = "",
 ):
+    from fastapi.responses import RedirectResponse
     # Structural tagline rules (pairing + no nesting) — no required list,
     # since templates ship with placeholders meant to be filled in.
     tag_error = validate_prompt_taglines(content, required=[])
@@ -1034,7 +1025,6 @@ async def prompt_template_save(
             "type_description": fs.read_type_description(agent_type),
             "templates_dir": str(settings.prompt_templates_dir),
             "claude_bin_found": bool(settings.claude_bin),
-            "enable_specialize": settings.enable_specialize,
             "error": f"{filename}: {tag_error}",
         })
     fs.write_prompt_template(agent_type, filename, content, message)
@@ -1043,6 +1033,561 @@ async def prompt_template_save(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# §18  Entry point
+# §18  Vault — repo-wide secrets store
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _vault():
+    """Open the repo-wide vault. Returns a Vault instance, or None when the
+    orchestrator library is not importable (the UI then surfaces a banner
+    explaining the situation rather than crashing)."""
+    return ob.open_repo_vault(settings.pipelines_root)
+
+
+def _vault_path() -> Path:
+    return settings.pipelines_root / "secrets.db"
+
+
+def _vault_marker_index() -> dict[str, list[dict]]:
+    """Walk every pipeline and collect <<secret:NAME>> references for the
+    Vault's `Used in` column and Show Usage modal. Mirrors the orchestrator's
+    scan but at repo scope."""
+    index: dict[str, list[dict]] = {}
+    root = settings.pipelines_root
+    if not root.exists():
+        return index
+    for pdir in sorted(root.iterdir()):
+        if not pdir.is_dir() or pdir.name.startswith(".") or pdir.name == "templates":
+            continue
+        if not (pdir / "pipeline.json").exists():
+            continue
+        try:
+            refs = ob.scan_pipeline_for_markers(pdir)
+        except Exception:
+            refs = {}
+        for name, occurrences in refs.items():
+            for occ in occurrences:
+                index.setdefault(name, []).append({
+                    "pipeline": pdir.name,
+                    "agent":    occ.get("agent", "?"),
+                    "file":     occ.get("file", "?"),
+                })
+    return index
+
+
+def _vault_render(request: Request, *, save_ok: str | None = None,
+                  save_error: str | None = None) -> HTMLResponse:
+    v = _vault()
+    rows: list[dict] = []
+    if v is not None:
+        rows = v.list()
+        marker_index = _vault_marker_index()
+        for r in rows:
+            r["usage_count"] = len(marker_index.get(r["name"], []))
+    return _t(request, "vault.html", {
+        "rows": rows,
+        "vault_path": str(_vault_path()),
+        "vault_available": v is not None,
+        "save_ok": save_ok,
+        "save_error": save_error,
+    })
+
+
+@router.get("/vault", response_class=HTMLResponse)
+async def vault_page(request: Request):
+    return _vault_render(request)
+
+
+@router.post("/vault/new", response_class=HTMLResponse)
+async def vault_new(
+    request: Request,
+    name: Annotated[str, Form()],
+    value: Annotated[str, Form()],
+    description: Annotated[str, Form()] = "",
+    tags: Annotated[str, Form()] = "",
+):
+    v = _vault()
+    if v is None:
+        return _vault_render(request,
+                             save_error="Vault unavailable (orchestrator not on path).")
+    name = name.strip()
+    if not ob.name_grammar_ok(name):
+        return _vault_render(request,
+                             save_error=f"Invalid secret name '{name}'. "
+                                        "Must match [A-Za-z_][A-Za-z0-9_]*.")
+    if not value:
+        return _vault_render(request, save_error="Value is required.")
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    try:
+        v.put(name, value, description=description, tags=tag_list)
+    except ValueError as e:
+        return _vault_render(request, save_error=str(e))
+    return _vault_render(request, save_ok=f"Secret '{name}' saved.")
+
+
+@router.post("/vault/delete", response_class=HTMLResponse)
+async def vault_delete(
+    request: Request,
+    name: Annotated[str, Form()],
+):
+    v = _vault()
+    if v is None:
+        return _vault_render(request, save_error="Vault unavailable.")
+    deleted = v.delete(name.strip())
+    msg = (f"Secret '{name}' deleted." if deleted
+           else f"Secret '{name}' not found.")
+    return _vault_render(request, save_ok=msg if deleted else None,
+                         save_error=None if deleted else msg)
+
+
+@router.post("/vault/metadata", response_class=HTMLResponse)
+async def vault_metadata(
+    request: Request,
+    name: Annotated[str, Form()],
+    description: Annotated[str, Form()] = "",
+    tags: Annotated[str, Form()] = "",
+):
+    """Update description/tags only — the value is never read back."""
+    v = _vault()
+    if v is None:
+        return _vault_render(request, save_error="Vault unavailable.")
+    name = name.strip()
+    meta = v.get_metadata(name)
+    if meta is None:
+        return _vault_render(request, save_error=f"Secret '{name}' not found.")
+    cur_value = v.get(name)
+    if cur_value is None:
+        return _vault_render(request, save_error=f"Secret '{name}' has no value.")
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    try:
+        v.put(name, cur_value, description=description, tags=tag_list)
+    except ValueError as e:
+        return _vault_render(request, save_error=str(e))
+    return _vault_render(request, save_ok=f"Metadata for '{name}' updated.")
+
+
+@router.post("/vault/replace", response_class=HTMLResponse)
+async def vault_replace(
+    request: Request,
+    name: Annotated[str, Form()],
+    value: Annotated[str, Form()],
+):
+    v = _vault()
+    if v is None:
+        return _vault_render(request, save_error="Vault unavailable.")
+    name = name.strip()
+    meta = v.get_metadata(name)
+    if meta is None:
+        return _vault_render(request, save_error=f"Secret '{name}' not found.")
+    if not value:
+        return _vault_render(request, save_error="Value is required.")
+    try:
+        v.put(name, value,
+              description=meta.get("description", ""),
+              tags=meta.get("tags") or [])
+    except ValueError as e:
+        return _vault_render(request, save_error=str(e))
+    return _vault_render(request, save_ok=f"Value for '{name}' replaced.")
+
+
+@router.get("/vault/usage", response_class=HTMLResponse)
+async def vault_usage(request: Request, name: str):
+    """Render the usage modal partial for a single secret name."""
+    v = _vault()
+    file_refs = _vault_marker_index().get(name, [])
+    usage_rows: list[dict] = v.usage(name) if v is not None else []
+    return _t(request, "partials/vault_usage.html", {
+        "name": name,
+        "file_refs": file_refs,
+        "usage_rows": usage_rows,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §19  Per-agent input/output schema panel
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_lines(text: str) -> list[str]:
+    return [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+
+
+def _parse_json_schema(text: str) -> tuple[Any, str | None]:
+    text = (text or "").strip()
+    if not text:
+        return None, None
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError as e:
+        return None, f"json_schema is not valid JSON: {e}"
+
+
+def _schema_panel_render(
+    request: Request, name: str, agent_id: str, *,
+    save_ok: bool = False, save_error: str | None = None,
+) -> HTMLResponse:
+    pipeline = fs.get_pipeline(name) or {}
+    agent = fs.get_agent(name, agent_id) or {}
+    agent_cfg = fs.read_agent_config(name, agent_id)
+    return _t(request, "partials/schema_panel.html", {
+        "pipeline_name": name,
+        "agent_id": agent_id,
+        "agent": agent,
+        "pipeline": pipeline,
+        "agent_cfg": agent_cfg,
+        "valid_modes": sorted(ob.VALID_SCHEMA_MODES),
+        "save_ok": save_ok,
+        "save_error": save_error,
+    })
+
+
+@router.get("/pipeline/{name}/agent/{agent_id}/schema", response_class=HTMLResponse)
+async def schema_get(request: Request, name: str, agent_id: str):
+    return _schema_panel_render(request, name, agent_id)
+
+
+def _build_schema_block(
+    *, modes: list[str], sections: list[str], contains: list[str],
+    json_schema_text: str,
+    require_upstream: list[str] | None = None,
+    static_required: bool | None = None,
+) -> tuple[dict, str | None]:
+    block: dict[str, Any] = {}
+    if modes:
+        block["mode"] = modes
+    if sections:
+        block["sections"] = sections
+    if contains:
+        block["contains"] = contains
+    parsed_js, err = _parse_json_schema(json_schema_text)
+    if err:
+        return {}, err
+    if parsed_js is not None:
+        block["json_schema"] = parsed_js
+    if require_upstream is not None and require_upstream:
+        block["require_upstream"] = require_upstream
+    if static_required:
+        block["static_inputs_required"] = True
+    return block, None
+
+
+@router.post("/pipeline/{name}/agent/{agent_id}/schema", response_class=HTMLResponse)
+async def schema_save(
+    request: Request, name: str, agent_id: str,
+    in_mode: Annotated[list[str] | None, Form()] = None,
+    in_sections: Annotated[str, Form()] = "",
+    in_contains: Annotated[str, Form()] = "",
+    in_json_schema: Annotated[str, Form()] = "",
+    in_require_upstream: Annotated[list[str] | None, Form()] = None,
+    in_static_required: Annotated[str, Form()] = "",
+    out_mode: Annotated[list[str] | None, Form()] = None,
+    out_sections: Annotated[str, Form()] = "",
+    out_contains: Annotated[str, Form()] = "",
+    out_json_schema: Annotated[str, Form()] = "",
+):
+    in_block, err_in = _build_schema_block(
+        modes=list(in_mode or []),
+        sections=_parse_lines(in_sections),
+        contains=_parse_lines(in_contains),
+        json_schema_text=in_json_schema,
+        require_upstream=list(in_require_upstream or []),
+        static_required=(in_static_required.lower() == "true"),
+    )
+    if err_in:
+        return _schema_panel_render(request, name, agent_id,
+                                    save_error=f"Input schema: {err_in}")
+    out_block, err_out = _build_schema_block(
+        modes=list(out_mode or []),
+        sections=_parse_lines(out_sections),
+        contains=_parse_lines(out_contains),
+        json_schema_text=out_json_schema,
+    )
+    if err_out:
+        return _schema_panel_render(request, name, agent_id,
+                                    save_error=f"Output schema: {err_out}")
+
+    cfg = fs.read_agent_config(name, agent_id)
+    cfg["input_schema"]  = in_block
+    cfg["output_schema"] = out_block
+    ok, msg = fs.write_agent_config(name, agent_id, cfg,
+                                    message=f"Schema update for {agent_id}")
+    if not ok:
+        return _schema_panel_render(request, name, agent_id, save_error=msg)
+    return _schema_panel_render(request, name, agent_id, save_ok=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §20  Per-agent approval panel + downstream badges
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ancestors(pipeline: dict, agent_id: str) -> set[str]:
+    """Return every agent that reaches *agent_id* via depends_on (transitive)."""
+    deps = {a["id"]: list(a.get("depends_on", []) or [])
+            for a in pipeline.get("agents", [])
+            if isinstance(a, dict) and a.get("id")}
+    seen: set[str] = set()
+    stack = [agent_id]
+    while stack:
+        cur = stack.pop()
+        for d in deps.get(cur, []):
+            if d in seen:
+                continue
+            seen.add(d)
+            stack.append(d)
+    return seen
+
+
+def _cycle_warning(pipeline: dict, gate_id: str, on_reject: dict) -> str | None:
+    """If on_reject.target is an upstream agent (loop being introduced) and
+    termination.max_cycles is below the spec's heuristic threshold (5),
+    surface a non-blocking nudge."""
+    target = (on_reject or {}).get("target")
+    if not target or target == gate_id:
+        return None
+    if target not in _ancestors(pipeline, gate_id):
+        return None
+    term = pipeline.get("termination", {}) or {}
+    mc = term.get("max_cycles")
+    try:
+        mc_int = int(mc) if mc is not None else 0
+    except (TypeError, ValueError):
+        mc_int = 0
+    if mc_int >= 5:
+        return None
+    return ("This rejection routes to an upstream agent, creating a loop. "
+            f"Consider raising termination.max_cycles — current value is "
+            f"{mc_int if mc is not None else 'unset'}.")
+
+
+def _downstream_badges(name: str, agent_id: str) -> list[dict]:
+    """Find every other agent whose approval_routes targets *agent_id*. Used
+    to render a read-only badge on this agent's Approval panel saying
+    'May receive rejection feedback from <gate>' / 'approval task from <gate>'."""
+    pipeline = fs.get_pipeline(name) or {}
+    badges: list[dict] = []
+    for a in pipeline.get("agents", []):
+        if not isinstance(a, dict):
+            continue
+        gate = a.get("id")
+        if not gate or gate == agent_id:
+            continue
+        cfg = fs.read_agent_config(name, gate)
+        routes = cfg.get("approval_routes") or {}
+        if (routes.get("on_reject") or {}).get("target") == agent_id:
+            badges.append({"gate": gate, "kind": "rejection feedback"})
+        if (routes.get("on_approve") or {}).get("target") == agent_id:
+            badges.append({"gate": gate, "kind": "approval task"})
+    return badges
+
+
+def _approval_panel_render(
+    request: Request, name: str, agent_id: str, *,
+    save_ok: bool = False, save_error: str | None = None,
+) -> HTMLResponse:
+    pipeline = fs.get_pipeline(name) or {}
+    agent_cfg = fs.read_agent_config(name, agent_id)
+    other = [a["id"] for a in pipeline.get("agents", [])
+             if isinstance(a, dict) and a.get("id") and a["id"] != agent_id]
+    routes = agent_cfg.get("approval_routes") or {}
+    return _t(request, "partials/approval_panel.html", {
+        "pipeline_name": name,
+        "agent_id": agent_id,
+        "pipeline": pipeline,
+        "agent_cfg": agent_cfg,
+        "other_agent_ids": other,
+        "downstream_badges": _downstream_badges(name, agent_id),
+        "cycle_warning": _cycle_warning(pipeline, agent_id,
+                                        routes.get("on_reject") or {}),
+        "save_ok": save_ok,
+        "save_error": save_error,
+    })
+
+
+@router.get("/pipeline/{name}/agent/{agent_id}/approval", response_class=HTMLResponse)
+async def approval_get(request: Request, name: str, agent_id: str):
+    return _approval_panel_render(request, name, agent_id)
+
+
+def _build_route(target: str, includes: list[str], mode: str) -> dict | None:
+    target = (target or "").strip()
+    if not target:
+        return None
+    return {
+        "target": target,
+        "include": includes if includes else ["output"],
+        "mode": mode if mode in ("feedback", "task") else "feedback",
+    }
+
+
+@router.post("/pipeline/{name}/agent/{agent_id}/approval", response_class=HTMLResponse)
+async def approval_save(
+    request: Request, name: str, agent_id: str,
+    requires_approval: Annotated[str, Form()] = "",
+    on_reject_target: Annotated[str, Form()] = "",
+    on_reject_include: Annotated[list[str] | None, Form()] = None,
+    on_reject_mode: Annotated[str, Form()] = "feedback",
+    on_approve_target: Annotated[str, Form()] = "",
+    on_approve_include: Annotated[list[str] | None, Form()] = None,
+    on_approve_mode: Annotated[str, Form()] = "feedback",
+):
+    cfg = fs.read_agent_config(name, agent_id)
+    cfg["requires_approval"] = (requires_approval.lower() == "true")
+    routes: dict[str, Any] = {}
+    rej = _build_route(on_reject_target, list(on_reject_include or []),
+                       on_reject_mode)
+    app_ = _build_route(on_approve_target, list(on_approve_include or []),
+                        on_approve_mode)
+    if rej:
+        routes["on_reject"] = rej
+    if app_:
+        routes["on_approve"] = app_
+    if cfg["requires_approval"] and routes:
+        cfg["approval_routes"] = routes
+    else:
+        cfg.pop("approval_routes", None)
+    ok, msg = fs.write_agent_config(name, agent_id, cfg,
+                                    message=f"Approval update for {agent_id}")
+    if not ok:
+        return _approval_panel_render(request, name, agent_id, save_error=msg)
+    return _approval_panel_render(request, name, agent_id, save_ok=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §21  Pipeline-level settings (config.json approval / secrets) + migration
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _migration_candidates(name: str) -> list[dict]:
+    """Find substitutions whose values look like credentials. Each entry is
+    {key, value, patterns}. The banner only ever shows the keys + patterns;
+    the value is held in memory only long enough to migrate."""
+    cfg = fs.read_pipeline_config(name)
+    subs = cfg.get("substitutions") or {}
+    if not isinstance(subs, dict):
+        return []
+    out: list[dict] = []
+    for k, v in subs.items():
+        if not isinstance(v, str) or not v:
+            continue
+        findings = ob.scan_for_secrets_in_text(v)
+        if findings:
+            out.append({
+                "key": k,
+                "value": v,
+                "patterns": [f["pattern"] for f in findings],
+            })
+    return out
+
+
+def _unresolved_secrets(name: str) -> list[str]:
+    """Names referenced as <<secret:NAME>> in this pipeline's prompts but
+    absent from the vault. Surfaced on the Settings tab as a banner."""
+    pdir = _pipeline_dir(name)
+    refs = ob.scan_pipeline_for_markers(pdir)
+    if not refs:
+        return []
+    v = _vault()
+    if v is None:
+        return sorted(refs.keys())
+    existing = {r["name"] for r in v.list()}
+    return sorted(n for n in refs.keys() if n not in existing)
+
+
+def _settings_render(
+    request: Request, name: str, *,
+    save_ok: bool = False, save_error: str | None = None,
+    migration_result: dict | None = None,
+) -> HTMLResponse:
+    pipeline_config = fs.read_pipeline_config(name)
+    return _t(request, "partials/pipeline_settings.html", {
+        "pipeline_name": name,
+        "pipeline_config": pipeline_config,
+        "migration_banner": {"candidates": _migration_candidates(name)},
+        "migration_result": migration_result,
+        "gitignore_status": fs.gitignore_status(name),
+        "unresolved_secrets": _unresolved_secrets(name),
+        "save_ok": save_ok,
+        "save_error": save_error,
+    })
+
+
+@router.get("/pipeline/{name}/settings", response_class=HTMLResponse)
+async def settings_panel(request: Request, name: str):
+    return _settings_render(request, name)
+
+
+@router.post("/pipeline/{name}/settings/pipeline-config", response_class=HTMLResponse)
+async def settings_pipeline_config(
+    request: Request, name: str,
+    approver: Annotated[str, Form()] = "operator",
+    poll_interval_s: Annotated[str, Form()] = "10",
+    timeout_s: Annotated[str, Form()] = "3600",
+    rehydrate_outputs: Annotated[str, Form()] = "",
+):
+    cfg = fs.read_pipeline_config(name)
+    appr = cfg.get("approval") if isinstance(cfg.get("approval"), dict) else {}
+    appr["approver"] = approver.strip() or "operator"
+    try:
+        appr["poll_interval_s"] = max(1, int(poll_interval_s))
+    except ValueError:
+        appr["poll_interval_s"] = 10
+    try:
+        appr["timeout_s"] = max(1, int(timeout_s))
+    except ValueError:
+        appr["timeout_s"] = 3600
+    cfg["approval"] = appr
+
+    sec = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
+    sec["rehydrate_outputs"] = (rehydrate_outputs.lower() == "true")
+    cfg["secrets"] = sec
+
+    ok, msg = fs.write_pipeline_config(name, cfg,
+                                       message="Update approval/secrets settings")
+    if not ok:
+        return _settings_render(request, name, save_error=msg)
+    return _settings_render(request, name, save_ok=True)
+
+
+@router.post("/pipeline/{name}/migrate-substitutions", response_class=HTMLResponse)
+async def migrate_substitutions(request: Request, name: str):
+    """Move substitutions whose values look like credentials into the vault,
+    rewriting `{{KEY}}` → `<<secret:KEY>>` across every authored prompt."""
+    v = _vault()
+    if v is None:
+        return _settings_render(request, name,
+                                save_error="Vault unavailable — cannot migrate.")
+    candidates = _migration_candidates(name)
+    if not candidates:
+        return _settings_render(request, name,
+                                migration_result={"migrated": [],
+                                                  "rewritten_files": 0})
+
+    cfg = fs.read_pipeline_config(name)
+    subs = cfg.get("substitutions") or {}
+    migrated: list[str] = []
+    rewritten = 0
+    for c in candidates:
+        key = c["key"]
+        try:
+            v.put(key, c["value"], description=f"Migrated from {name}",
+                  pipeline=name)
+        except ValueError:
+            continue
+        subs.pop(key, None)
+        rewritten += fs.rewrite_substitution_marker(name, key)
+        migrated.append(key)
+    cfg["substitutions"] = subs
+    fs.write_pipeline_config(
+        name, cfg,
+        message=f"Migrate substitutions to vault: {', '.join(migrated) or '—'}")
+    return _settings_render(
+        request, name,
+        migration_result={"migrated": migrated, "rewritten_files": rewritten},
+    )
+
+
+@router.post("/pipeline/{name}/fix-gitignore", response_class=HTMLResponse)
+async def fix_gitignore(request: Request, name: str):
+    status = fs.gitignore_status(name)
+    if status.get("missing"):
+        fs.append_gitignore_lines(name, status["missing"])
+    return _settings_render(request, name, save_ok=True)
+
 

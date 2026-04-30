@@ -44,6 +44,8 @@
      class="tab{% if tab == 'agents' %} active{% endif %}">🤖 Agents</a>
   <a href="/pipeline/{{ pipeline_name }}?tab=files"
      class="tab{% if tab == 'files' %} active{% endif %}">📁 Files</a>
+  <a href="/pipeline/{{ pipeline_name }}?tab=settings"
+     class="tab{% if tab == 'settings' %} active{% endif %}">⚙ Settings</a>
   <a href="/pipeline/{{ pipeline_name }}?tab=validate"
      class="tab{% if tab == 'validate' %} active{% endif %}">✓ Validate</a>
 </div>
@@ -136,6 +138,14 @@
   <div id="file-editor-area">
     <div class="panel-placeholder">Select a file to edit.</div>
   </div>
+</div>
+
+{% elif tab == 'settings' %}
+<!-- ── SETTINGS TAB ─────────────────────────────────────── -->
+<div hx-get="/pipeline/{{ pipeline_name }}/settings"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <p class="loading">Loading settings…</p>
 </div>
 
 {% elif tab == 'validate' %}

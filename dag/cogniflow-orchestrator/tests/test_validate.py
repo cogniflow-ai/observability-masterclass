@@ -1,115 +1,157 @@
-"""Tests for pipeline validation."""
+"""Tests for validate_pipeline() including all V-CYC checks."""
 import json
 import pytest
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from orchestrator.validate import validate_pipeline
 from orchestrator.exceptions import PipelineValidationError
 
 
-def write_pipeline(tmp_path, data):
-    p = tmp_path / "pipeline.json"
-    p.write_text(json.dumps(data), encoding="utf-8")
-    return p
+def _make_pipeline(tmp_path, spec, agents=None):
+    """Write pipeline.json and agent directories to tmp_path."""
+    pj = tmp_path / "pipeline.json"
+    pj.write_text(json.dumps(spec), encoding="utf-8")
+    for a in (agents or spec.get("agents", [])):
+        aid = a["id"]
+        adir_rel = a.get("dir", aid)
+        adir = tmp_path / adir_rel
+        adir.mkdir(parents=True, exist_ok=True)
+        (adir / "01_system.md").write_text(f"# {aid} system", encoding="utf-8")
+        (adir / "02_prompt.md").write_text(f"# {aid} prompt", encoding="utf-8")
+    return tmp_path
 
 
-def make_agent_files(agents_base, agent_id):
-    d = agents_base / agent_id
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "01_system.md").write_text("system", encoding="utf-8")
-    (d / "02_prompt.md").write_text("prompt", encoding="utf-8")
+_VALID_CYCLIC = {
+    "name": "test",
+    "agents": [
+        {"id": "pm", "dir": "00_pm"},
+        {"id": "architect", "dir": "01_architect"},
+        {"id": "developer_1", "dir": "02_dev"},
+    ],
+    "edges": [
+        {"from": "pm", "to": "architect", "type": "task", "directed": True},
+        {"from": "architect", "to": "developer_1", "type": "feedback", "directed": False},
+    ],
+    "termination": {
+        "strategy": "all_done",
+        "max_cycles": 5,
+        "timeout_s": 3600,
+        "on_cycle_limit": "escalate_pm",
+    },
+    "tags": {"domain": ["auth", "api"]},
+}
 
 
-class TestValidatePipeline:
-    def test_valid_pipeline(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        for aid in ("a", "b"):
-            make_agent_files(agents_base, aid)
-        data = {"name": "test", "agents": [
-            {"id": "a", "depends_on": []},
-            {"id": "b", "depends_on": ["a"]},
-        ]}
-        p = write_pipeline(tmp_path, data)
-        result = validate_pipeline(p, agents_base)
-        assert result["name"] == "test"
+def test_valid_cyclic_pipeline(tmp_path):
+    _make_pipeline(tmp_path, _VALID_CYCLIC)
+    spec = validate_pipeline(tmp_path)
+    assert spec["name"] == "test"
 
-    def test_missing_pipeline_file(self, tmp_path):
-        with pytest.raises(PipelineValidationError, match="not found"):
-            validate_pipeline(tmp_path / "pipeline.json", tmp_path / "agents")
 
-    def test_invalid_json(self, tmp_path):
-        p = tmp_path / "pipeline.json"
-        p.write_text("{bad json", encoding="utf-8")
-        with pytest.raises(PipelineValidationError, match="not valid JSON"):
-            validate_pipeline(p, tmp_path / "agents")
+def test_vcyc_001_missing_termination(tmp_path):
+    spec = {**_VALID_CYCLIC}
+    del spec["termination"]
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-001" in e for e in exc_info.value.errors)
 
-    def test_missing_name(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        make_agent_files(agents_base, "a")
-        data = {"agents": [{"id": "a", "depends_on": []}]}
-        p = write_pipeline(tmp_path, data)
-        with pytest.raises(PipelineValidationError, match="name"):
-            validate_pipeline(p, agents_base)
 
-    def test_duplicate_ids(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        make_agent_files(agents_base, "a")
-        data = {"name": "t", "agents": [
-            {"id": "a", "depends_on": []},
-            {"id": "a", "depends_on": []},
-        ]}
-        p = write_pipeline(tmp_path, data)
-        with pytest.raises(PipelineValidationError, match="duplicate"):
-            validate_pipeline(p, agents_base)
+def test_vcyc_002_bad_strategy(tmp_path):
+    spec = {**_VALID_CYCLIC,
+            "termination": {**_VALID_CYCLIC["termination"], "strategy": "invalid"}}
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-002" in e for e in exc_info.value.errors)
 
-    def test_unknown_dependency(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        make_agent_files(agents_base, "a")
-        data = {"name": "t", "agents": [
-            {"id": "a", "depends_on": ["ghost"]},
-        ]}
-        p = write_pipeline(tmp_path, data)
-        with pytest.raises(PipelineValidationError, match="ghost"):
-            validate_pipeline(p, agents_base)
 
-    def test_missing_system_file(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        d = agents_base / "a"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "02_prompt.md").write_text("prompt", encoding="utf-8")
-        # 01_system.md deliberately absent
-        data = {"name": "t", "agents": [{"id": "a", "depends_on": []}]}
-        p = write_pipeline(tmp_path, data)
-        with pytest.raises(PipelineValidationError, match="01_system.md"):
-            validate_pipeline(p, agents_base)
+def test_vcyc_003_max_cycles_too_low(tmp_path):
+    spec = {**_VALID_CYCLIC,
+            "termination": {**_VALID_CYCLIC["termination"], "max_cycles": 1}}
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-003" in e for e in exc_info.value.errors)
 
-    def test_cycle_detected(self, tmp_path):
-        agents_base = tmp_path / "agents"
-        for aid in ("a", "b"):
-            make_agent_files(agents_base, aid)
-        data = {"name": "t", "agents": [
-            {"id": "a", "depends_on": ["b"]},
-            {"id": "b", "depends_on": ["a"]},
-        ]}
-        p = write_pipeline(tmp_path, data)
-        with pytest.raises(PipelineValidationError):
-            validate_pipeline(p, agents_base)
 
-    def test_reports_all_errors_at_once(self, tmp_path):
-        """Validation should collect ALL problems, not just the first."""
-        agents_base = tmp_path / "agents"
-        # No agent files created — both will be missing
-        data = {"name": "t", "agents": [
-            {"id": "x", "depends_on": ["missing_dep"]},
-            {"id": "y", "depends_on": ["also_missing"]},
-        ]}
-        p = write_pipeline(tmp_path, data)
-        try:
-            validate_pipeline(p, agents_base)
-            assert False, "Should have raised"
-        except PipelineValidationError as e:
-            # Should report multiple problems
-            assert len(e.problems) > 1
+def test_vcyc_004_unknown_agent_in_edge(tmp_path):
+    spec = {**_VALID_CYCLIC, "edges": [
+        {"from": "pm", "to": "nonexistent", "type": "task", "directed": True},
+        {"from": "architect", "to": "developer_1", "type": "feedback", "directed": False},
+    ]}
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-004" in e for e in exc_info.value.errors)
+
+
+def test_vcyc_006_feedback_directed_true(tmp_path):
+    spec = {**_VALID_CYCLIC, "edges": [
+        {"from": "pm", "to": "architect", "type": "task", "directed": True},
+        {"from": "architect", "to": "developer_1", "type": "feedback", "directed": True},
+    ]}
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-006" in e for e in exc_info.value.errors)
+
+
+def test_vcyc_007_missing_domain_tags(tmp_path):
+    spec = {**_VALID_CYCLIC}
+    del spec["tags"]
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-007" in e for e in exc_info.value.errors)
+
+
+def test_vcyc_009_no_pm_agent(tmp_path):
+    spec = {
+        "name": "no-pm",
+        "agents": [
+            {"id": "architect", "dir": "01_arch"},
+            {"id": "developer_1", "dir": "02_dev"},
+        ],
+        "edges": [
+            {"from": "architect", "to": "developer_1", "type": "feedback", "directed": False},
+        ],
+        "termination": _VALID_CYCLIC["termination"],
+        "tags": {"domain": ["auth"]},
+    }
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    assert any("V-CYC-009" in e for e in exc_info.value.errors)
+
+
+def test_multiple_errors_collected_at_once(tmp_path):
+    """All errors should be reported together, not one at a time."""
+    spec = {
+        "name": "multi-error",
+        "agents": [
+            {"id": "architect", "dir": "01_arch"},
+            {"id": "developer_1", "dir": "02_dev"},
+        ],
+        "edges": [
+            {"from": "architect", "to": "developer_1", "type": "feedback", "directed": False},
+        ],
+        # Missing: termination, tags.domain, pm agent
+    }
+    _make_pipeline(tmp_path, spec)
+    with pytest.raises(PipelineValidationError) as exc_info:
+        validate_pipeline(tmp_path)
+    # Should have at least 3 errors (V-CYC-001, V-CYC-007, V-CYC-009)
+    assert len(exc_info.value.errors) >= 3
+
+
+def test_valid_dag_pipeline(tmp_path):
+    spec = {
+        "name": "simple-dag",
+        "agents": [
+            {"id": "researcher", "dir": "001_researcher", "depends_on": []},
+            {"id": "writer",     "dir": "002_writer",     "depends_on": ["researcher"]},
+        ],
+    }
+    _make_pipeline(tmp_path, spec)
+    result = validate_pipeline(tmp_path)
+    assert result["name"] == "simple-dag"

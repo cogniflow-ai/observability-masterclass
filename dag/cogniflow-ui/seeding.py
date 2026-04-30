@@ -6,8 +6,8 @@ On startup the UI ships a curated set of "seed" pipelines under
 so students always have the bundled examples available.
 
 Behaviour:
-  * If the `.ui-seed-marker` file in pipelines_root is missing, OR records a
-    different `app_version`, we re-seed.
+  * If the `.ui-seed-marker.json` file in pipelines_root is missing, OR records
+    a different `app_version`, we re-seed.
   * Re-seeding copies each `seed_pipelines/<name>/` into
     `pipelines_root/<name>/`, OVERWRITING files inside seed pipelines but
     leaving every other (user-created or lab-added) pipeline untouched.
@@ -15,11 +15,10 @@ Behaviour:
     history, .state/, .configurator/, agent outputs) are NOT deleted —
     they persist across re-seeds.
   * After a successful pass, the marker is updated. Same-version restarts
-    are a no-op so user edits to bundled pipelines persist between runs;
-    edits are only refreshed when you ship a new UI version.
+    are a no-op so user edits to bundled pipelines persist between runs.
 
-The marker also records the list of pipelines that were last seeded, so we
-can detect (and log) a bundled pipeline that was deleted by the user.
+If `seed_root` does not exist, this is a no-op — the UI still launches with
+whatever pipelines are already on disk.
 """
 from __future__ import annotations
 import json
@@ -48,9 +47,6 @@ def _write_marker(pipelines_root: Path, payload: dict) -> None:
 
 
 def _seed_one(seed_dir: Path, dest_dir: Path) -> int:
-    """Copy `seed_dir` into `dest_dir`, overwriting same-named files.
-    Files already present in `dest_dir` that are NOT in `seed_dir` are kept
-    (they may be runtime artefacts produced by the orchestrator)."""
     files_written = 0
     dest_dir.mkdir(parents=True, exist_ok=True)
     for src in seed_dir.rglob("*"):
@@ -71,17 +67,7 @@ def seed_pipelines(
     *,
     force: bool = False,
 ) -> dict:
-    """Overlay bundled seeds onto pipelines_root.
-
-    Returns a summary dict suitable for logging:
-        {
-            "skipped": bool,        # True if version matched and force=False
-            "version_before": str,
-            "version_after": str,
-            "seeded": [pipeline_name, ...],
-            "files_written": int,
-        }
-    """
+    """Overlay bundled seeds onto pipelines_root. Returns a summary dict."""
     pipelines_root.mkdir(parents=True, exist_ok=True)
     marker = _read_marker(pipelines_root)
     prev_version = marker.get("app_version", "")
@@ -96,9 +82,6 @@ def seed_pipelines(
         }
 
     if not seed_root.exists():
-        # Nothing to seed (e.g. running from source without a seed_pipelines
-        # dir, or the bundle is broken). Don't touch the marker — let the
-        # next launch try again.
         return {
             "skipped": True,
             "version_before": prev_version,

@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Vault — Cogniflow Configurator{% endblock %}
+
+{% block sidebar_pipelines %}
+{% for p in settings.pipelines_root.iterdir() | sort(attribute='name') %}{% if p.is_dir() and not p.name.startswith('.') and p.name != 'templates' %}{% set pjpath = p / 'pipeline.json' %}{% if pjpath.exists() %}
+<a href="/pipeline/{{ p.name }}" class="sidebar-link">
+  <span class="sidebar-link-name">{{ p.name }}</span>
+</a>
+{% endif %}{% endif %}{% endfor %}
+{% endblock %}
+
+{% block header_extra %}
+<span class="header-pipeline-name">Vault</span>
+<span class="badge-info" title="Repo-wide secret store at {{ vault_path }}">
+  {{ rows | length }} secret{{ '' if rows | length == 1 else 's' }}
+</span>
+{% endblock %}
+
+{% block content %}
+<div class="vault-page">
+
+  {% if not vault_available %}
+  <div class="error-banner">
+    The orchestrator library is not on the Python path; the Vault panel can't
+    load. Set <code>ORCH_PATH</code> to the orchestrator package root or
+    install it as a sibling directory.
+  </div>
+  {% endif %}
+
+  {% if save_ok %}<div class="success-banner">✓ {{ save_ok }}</div>{% endif %}
+  {% if save_error %}<div class="error-banner">⚠ {{ save_error }}</div>{% endif %}
+
+  <div class="vault-header">
+    <div>
+      <h2>Secrets vault</h2>
+      <small class="muted">
+        Repo-wide. Stored at <code>{{ vault_path }}</code>.
+        <strong>Values are never displayed</strong>; the UI only writes them.
+      </small>
+    </div>
+    <button class="btn-primary btn-sm" onclick="showModal('modal-new-secret')">
+      + New Secret
+    </button>
+  </div>
+
+  {% if rows %}
+  <table class="data-table vault-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Description</th>
+        <th>Tags</th>
+        <th>Origin pipeline</th>
+        <th>Updated</th>
+        <th>Used in</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><code>{{ r.name }}</code></td>
+        <td>{{ r.description or '—' }}</td>
+        <td>
+          {% for t in r.tags %}<span class="tag-chip" style="display:inline-flex">{{ t }}</span>{% endfor %}
+        </td>
+        <td>{{ r.origin_pipeline or '—' }}</td>
+        <td><small>{{ r.updated_at[:19].replace('T',' ') }}</small></td>
+        <td>{{ r.usage_count }}</td>
+        <td class="vault-actions">
+          <button class="btn-ghost btn-sm"
+                  onclick="openEditSecret('{{ r.name }}', '{{ r.description | replace("'", "\\'") }}', {{ r.tags | tojson }})">
+            Edit metadata
+          </button>
+          <button class="btn-ghost btn-sm"
+                  onclick="openReplaceValue('{{ r.name }}')">
+            Replace value
+          </button>
+          <button class="btn-ghost btn-sm"
+                  onclick="showUsage('{{ r.name }}')">
+            Show usage
+          </button>
+          <form method="post"
+                action="/vault/delete"
+                style="display:inline"
+                onsubmit="return confirm('Delete vault entry {{ r.name }}? This is irreversible. Pipelines that reference &lt;&lt;secret:{{ r.name }}&gt;&gt; will see them as unresolved.')">
+            <input type="hidden" name="name" value="{{ r.name }}"/>
+            <button type="submit" class="btn-danger btn-sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No secrets in the vault yet. Click + New Secret to add one.</p>
+  {% endif %}
+
+</div>
+
+<!-- ── New Secret modal ─────────────────────────────────────────────────── -->
+<div id="modal-new-secret" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>New Secret</h2>
+      <button onclick="hideModal('modal-new-secret')">✕</button>
+    </div>
+    <form method="post" action="/vault/new">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Name <span class="req">*</span></label>
+          <input name="name" required pattern="[A-Za-z_][A-Za-z0-9_]*"
+                 placeholder="DB_PASSWORD"
+                 title="Identifier grammar: starts with letter or underscore, then alnum/underscore"/>
+          <small class="muted">Identifier grammar: <code>[A-Za-z_][A-Za-z0-9_]*</code></small>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input name="description" placeholder="staging Postgres password"/>
+        </div>
+        <div class="form-group full">
+          <label>Tags (comma-separated)</label>
+          <input name="tags" placeholder="staging, db"/>
+        </div>
+        <div class="form-group full">
+          <label>Value <span class="req">*</span></label>
+          <input name="value" type="password" required autocomplete="new-password"
+                 placeholder="(value is never read back from disk after save)"/>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-new-secret')">Cancel</button>
+        <button type="submit" class="btn-primary">Create Secret</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit metadata modal ──────────────────────────────────────────────── -->
+<div id="modal-edit-secret" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Edit metadata — <code id="edit-secret-name-label"></code></h2>
+      <button onclick="hideModal('modal-edit-secret')">✕</button>
+    </div>
+    <form method="post" action="/vault/metadata">
+      <input type="hidden" name="name" id="edit-secret-name"/>
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Description</label>
+          <input name="description" id="edit-secret-description"/>
+        </div>
+        <div class="form-group full">
+          <label>Tags (comma-separated)</label>
+          <input name="tags" id="edit-secret-tags"/>
+        </div>
+      </div>
+      <p class="muted small">
+        Editing metadata never reads the value. To change the value use
+        <strong>Replace value</strong>.
+      </p>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-edit-secret')">Cancel</button>
+        <button type="submit" class="btn-primary">Save Metadata</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Replace value modal ──────────────────────────────────────────────── -->
+<div id="modal-replace-value" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Replace value — <code id="replace-secret-name-label"></code></h2>
+      <button onclick="hideModal('modal-replace-value')">✕</button>
+    </div>
+    <form method="post" action="/vault/replace">
+      <input type="hidden" name="name" id="replace-secret-name"/>
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>New value <span class="req">*</span></label>
+          <input name="value" type="password" required autocomplete="new-password"
+                 placeholder="The new value will overwrite the previous one immediately."/>
+        </div>
+      </div>
+      <p class="muted small">
+        After save, the value is written to the vault and is not read back into the UI.
+      </p>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="hideModal('modal-replace-value')">Cancel</button>
+        <button type="submit" class="btn-primary">Replace Value</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Usage modal ──────────────────────────────────────────────────────── -->
+<div id="modal-usage" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Usage — <code id="usage-secret-name-label"></code></h2>
+      <button onclick="hideModal('modal-usage')">✕</button>
+    </div>
+    <div id="usage-modal-body" class="modal-body"><p class="muted">Loading…</p></div>
+    <div class="modal-footer">
+      <button type="button" class="btn-ghost" onclick="hideModal('modal-usage')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openEditSecret(name, description, tags) {
+    document.getElementById('edit-secret-name').value         = name;
+    document.getElementById('edit-secret-name-label').textContent = name;
+    document.getElementById('edit-secret-description').value  = description || '';
+    document.getElementById('edit-secret-tags').value         = (tags || []).join(', ');
+    showModal('modal-edit-secret');
+  }
+  function openReplaceValue(name) {
+    document.getElementById('replace-secret-name').value      = name;
+    document.getElementById('replace-secret-name-label').textContent = name;
+    showModal('modal-replace-value');
+  }
+  function showUsage(name) {
+    document.getElementById('usage-secret-name-label').textContent = name;
+    document.getElementById('usage-modal-body').innerHTML = '<p class="muted">Loading…</p>';
+    showModal('modal-usage');
+    fetch('/vault/usage?name=' + encodeURIComponent(name))
+      .then(r => r.text())
+      .then(html => { document.getElementById('usage-modal-body').innerHTML = html; });
+  }
+</script>
+{% endblock %}

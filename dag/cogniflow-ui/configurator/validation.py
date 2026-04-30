@@ -2,6 +2,12 @@
 
 Mirrors the Orchestrator's validate_pipeline() logic so the Configurator
 guarantees that everything it produces is executable.
+
+When the orchestrator library is importable (see orchestrator_bridge), every
+save also runs orchestrator.validate.validate_pipeline() and surfaces its
+errors[] inline alongside the Configurator's own structural checks. This is
+the v3.5 → v4 alignment point: the runtime's word is final, and authoring
+catches every error the runtime would raise.
 """
 from __future__ import annotations
 import json
@@ -10,7 +16,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-AGENT_ID_RE = re.compile(r"^\d{3}_[a-z0-9_]+$")
+from . import orchestrator_bridge as ob
+
+AGENT_ID_RE = re.compile(r"^(?:\d{3}_[a-z0-9_]+|[a-z][a-z0-9_]*)$")
 VALID_TYPES = {
     "orchestrator", "worker", "reviewer", "synthesizer",
     "router", "classifier", "validator", "summarizer",
@@ -18,6 +26,8 @@ VALID_TYPES = {
 VALID_BUDGET = {"hard_fail", "auto_summarise", "select_top_n"}
 VALID_GRAPH_MODES = {"dag", "cyclic"}
 VALID_EDGE_TYPES = {"feedback", "peer"}
+VALID_APPROVAL_INCLUDE = {"output", "note", "full_context"}
+VALID_APPROVAL_ROUTE_MODE = {"feedback", "task"}
 
 _TAGLINE_RE = re.compile(r"<(/?)([A-Za-z_][\w-]*)>")
 
@@ -122,7 +132,7 @@ def _required_taglines(data: dict, kind: str = "system") -> list[str]:
         return parsed
     # Inherit globals.
     try:
-        from config import settings as _settings
+        from .config import settings as _settings
     except Exception:
         return []
     if kind == "task":
@@ -134,7 +144,7 @@ def global_default_taglines(kind: str) -> list[str]:
     """Expose the global defaults (read-only snapshot) for the UI helper
     text that shows users what they'd inherit if they leave a list empty."""
     try:
-        from config import settings as _settings
+        from .config import settings as _settings
     except Exception:
         return []
     if kind == "task":
@@ -245,7 +255,8 @@ def validate_pipeline(pipeline_dir: Path, data: dict | None = None) -> Validatio
             result.error("agents", f"{prefix}.id", "Agent id is missing")
         elif not AGENT_ID_RE.match(aid):
             result.error("agents", f"{prefix}.id",
-                         f"Agent id '{aid}' must match NNN_name (e.g. 001_researcher)")
+                         f"Agent id '{aid}' must match NNN_name (e.g. 001_researcher) "
+                         f"or be a plain lowercase identifier (e.g. 'pm')")
         elif aid in agent_ids:
             result.error("agents", f"{prefix}.id", f"Duplicate agent id '{aid}'")
         else:
@@ -350,7 +361,258 @@ def validate_pipeline(pipeline_dir: Path, data: dict | None = None) -> Validatio
             result.warning("prompts", f"agents/{aid}/01_system.md",
                            f"Agent '{aid}' has an empty system prompt")
 
+    # --- Per-agent 00_config.json (input_schema, output_schema, approval_routes)
+    _validate_agent_configs(pipeline_dir, agents, agent_ids, graph_mode, result)
+
+    # --- Pipeline-level config.json (approval, secrets) ---
+    _validate_pipeline_config(pipeline_dir, result)
+
+    # --- Library-call to orchestrator.validate (if available) ---------------
+    # The orchestrator's checks are authoritative; surface any errors it
+    # raises that we missed locally. We collect them under their own section
+    # so the UI can render them next to the offending agent (V-CYC-005,
+    # V-APPROVE-001, etc. all carry an agent id in the message).
+    orch_errors = _run_orchestrator_validate(pipeline_dir)
+    for msg in orch_errors:
+        section, field_anchor = _classify_orchestrator_error(msg, agent_ids)
+        # Skip duplicate noise: if the local result already has an error at
+        # the same field with the same wording, don't add a second copy.
+        if any(i.message == msg and i.field == field_anchor
+               for i in result.issues):
+            continue
+        result.error(section, field_anchor, msg)
+
     return result
+
+
+# ── New v4 sub-validators ────────────────────────────────────────────────────
+
+def _validate_agent_configs(pipeline_dir: Path, agents: list[dict],
+                            agent_ids: set[str], graph_mode: str,
+                            result: "ValidationResult") -> None:
+    """Shape-check each agent's 00_config.json (when present) for the v4
+    blocks the Configurator now writes: input_schema, output_schema,
+    approval_routes. This is a *shape* check; the orchestrator's
+    validate_pipeline call is the authority on rule-level errors."""
+    has_cyclic_edges = graph_mode == "cyclic"
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        aid = agent.get("id", "")
+        if not aid:
+            continue
+        cfg_path = pipeline_dir / "agents" / aid / "00_config.json"
+        if not cfg_path.exists():
+            continue
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            result.error("agents", f"agents/{aid}/00_config.json",
+                         f"00_config.json is not valid JSON: {e}")
+            continue
+        if not isinstance(cfg, dict):
+            continue
+
+        for schema_key in ("input_schema", "output_schema"):
+            sch = cfg.get(schema_key)
+            if sch is None:
+                continue
+            if not isinstance(sch, dict):
+                result.error("agents", f"agents/{aid}/{schema_key}",
+                             f"'{schema_key}' must be an object")
+                continue
+            modes = sch.get("mode", [])
+            if isinstance(modes, str):
+                modes = [modes]
+            if not isinstance(modes, list):
+                result.error("agents", f"agents/{aid}/{schema_key}.mode",
+                             f"{schema_key}.mode must be a string or list of strings")
+                continue
+            for m in modes:
+                if m not in ob.VALID_SCHEMA_MODES:
+                    result.error("agents", f"agents/{aid}/{schema_key}.mode",
+                                 f"Unknown {schema_key} mode '{m}'. "
+                                 f"Valid: {sorted(ob.VALID_SCHEMA_MODES)}")
+            sections = sch.get("sections")
+            if sections is not None and not (
+                isinstance(sections, list)
+                and all(isinstance(x, str) for x in sections)
+            ):
+                result.error("agents", f"agents/{aid}/{schema_key}.sections",
+                             f"{schema_key}.sections must be a list of strings")
+            contains = sch.get("contains")
+            if contains is not None and not (
+                isinstance(contains, list)
+                and all(isinstance(x, str) for x in contains)
+            ):
+                result.error("agents", f"agents/{aid}/{schema_key}.contains",
+                             f"{schema_key}.contains must be a list of strings")
+            if schema_key == "input_schema":
+                req_up = sch.get("require_upstream")
+                if req_up is not None and not (
+                    isinstance(req_up, list)
+                    and all(isinstance(x, str) for x in req_up)
+                ):
+                    result.error(
+                        "agents", f"agents/{aid}/input_schema.require_upstream",
+                        "require_upstream must be a list of agent IDs")
+                elif isinstance(req_up, list):
+                    declared = set(agent.get("depends_on", []) or [])
+                    for up in req_up:
+                        if up not in agent_ids:
+                            result.error(
+                                "agents", f"agents/{aid}/input_schema.require_upstream",
+                                f"require_upstream references unknown agent '{up}'")
+                        elif declared and up not in declared:
+                            result.error(
+                                "agents", f"agents/{aid}/input_schema.require_upstream",
+                                f"require_upstream '{up}' is not in depends_on")
+                si_req = sch.get("static_inputs_required")
+                if si_req is not None and not isinstance(si_req, bool):
+                    result.error(
+                        "agents", f"agents/{aid}/input_schema.static_inputs_required",
+                        "static_inputs_required must be true or false")
+
+        # ── approval_routes (V-APPROVE-001 shape) ────────────────────────────
+        routes = cfg.get("approval_routes")
+        if routes is not None:
+            if not cfg.get("requires_approval"):
+                result.error(
+                    "agents", f"agents/{aid}/approval_routes",
+                    "approval_routes declared but requires_approval is not true")
+            if not isinstance(routes, dict):
+                result.error("agents", f"agents/{aid}/approval_routes",
+                             "approval_routes must be an object")
+            else:
+                for rkey in ("on_reject", "on_approve"):
+                    route = routes.get(rkey)
+                    if route is None:
+                        continue
+                    if not isinstance(route, dict):
+                        result.error(
+                            "agents", f"agents/{aid}/approval_routes.{rkey}",
+                            f"approval_routes.{rkey} must be an object")
+                        continue
+                    target = route.get("target")
+                    if target is not None:
+                        if not isinstance(target, str):
+                            result.error(
+                                "agents",
+                                f"agents/{aid}/approval_routes.{rkey}.target",
+                                "target must be a string")
+                        elif target == aid:
+                            result.error(
+                                "agents",
+                                f"agents/{aid}/approval_routes.{rkey}.target",
+                                "[V-APPROVE-001] target must not equal the gate "
+                                "agent itself")
+                        elif target not in agent_ids:
+                            result.error(
+                                "agents",
+                                f"agents/{aid}/approval_routes.{rkey}.target",
+                                f"[V-APPROVE-001] target references unknown "
+                                f"agent '{target}'")
+                    include = route.get("include", ["output"])
+                    if not isinstance(include, list) or not all(
+                        isinstance(x, str) for x in include
+                    ):
+                        result.error(
+                            "agents",
+                            f"agents/{aid}/approval_routes.{rkey}.include",
+                            "include must be a list of strings")
+                    else:
+                        for part in include:
+                            if part not in VALID_APPROVAL_INCLUDE:
+                                result.error(
+                                    "agents",
+                                    f"agents/{aid}/approval_routes.{rkey}.include",
+                                    f"Unknown include entry '{part}'. "
+                                    f"Valid: {sorted(VALID_APPROVAL_INCLUDE)}")
+                    mode_val = route.get("mode", "feedback")
+                    if mode_val not in VALID_APPROVAL_ROUTE_MODE:
+                        result.error(
+                            "agents",
+                            f"agents/{aid}/approval_routes.{rkey}.mode",
+                            f"mode '{mode_val}' is invalid. "
+                            f"Valid: {sorted(VALID_APPROVAL_ROUTE_MODE)}")
+                if not has_cyclic_edges:
+                    result.error(
+                        "agents", f"agents/{aid}/approval_routes",
+                        "approval_routes is only supported on cyclic pipelines. "
+                        "In DAG mode, rejection stops the run.")
+
+
+def _validate_pipeline_config(pipeline_dir: Path,
+                              result: "ValidationResult") -> None:
+    """Shape-check <pipeline>/config.json — the file the Configurator now
+    writes for approval and secrets settings. The orchestrator already
+    tolerates unknown keys, so we only flag malformed values."""
+    cfg_path = pipeline_dir / "config.json"
+    if not cfg_path.exists():
+        return
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        result.error("graph", "config.json", f"config.json is not valid JSON: {e}")
+        return
+    if not isinstance(cfg, dict):
+        return
+    appr = cfg.get("approval", {})
+    if isinstance(appr, dict):
+        for k in ("poll_interval_s", "timeout_s"):
+            if k in appr:
+                v = appr[k]
+                if not isinstance(v, int) or v < 0:
+                    result.error("graph", f"config.json.approval.{k}",
+                                 f"approval.{k} must be a non-negative int, got {v!r}")
+        approver = appr.get("approver")
+        if approver is not None and not isinstance(approver, str):
+            result.error("graph", "config.json.approval.approver",
+                         "approval.approver must be a string")
+    sec = cfg.get("secrets", {})
+    if isinstance(sec, dict):
+        ro = sec.get("rehydrate_outputs")
+        if ro is not None and not isinstance(ro, bool):
+            result.error("graph", "config.json.secrets.rehydrate_outputs",
+                         "secrets.rehydrate_outputs must be true or false")
+
+
+def _run_orchestrator_validate(pipeline_dir: Path) -> list[str]:
+    """Call orchestrator.validate.validate_pipeline as a library and return
+    the errors[] list it would raise. Returns [] on success or when the
+    orchestrator library cannot be imported."""
+    if not ob.is_available():
+        return []
+    try:
+        ob.validate_pipeline(pipeline_dir)
+    except ob.PipelineValidationError as e:
+        errs = getattr(e, "errors", None)
+        if isinstance(errs, list):
+            return [str(x) for x in errs]
+        return [str(e)]
+    except Exception as e:  # pragma: no cover — defensive
+        return [f"orchestrator.validate raised {type(e).__name__}: {e}"]
+    return []
+
+
+_ERR_AGENT_RX = re.compile(r"Agent\s+'([^']+)'")
+
+
+def _classify_orchestrator_error(msg: str,
+                                 agent_ids: set[str]) -> tuple[str, str]:
+    """Map an orchestrator error string to (section, field_anchor) so the UI
+    can render it next to the right agent / panel.
+
+    - 'Agent <id>: ...'           → ('agents', 'agents/<id>/...')
+    - '[V-CYC-...]'                → ('graph', 'pipeline.json')
+    - everything else              → ('graph', 'pipeline.json')
+    """
+    if msg.startswith("[V-CYC"):
+        return ("graph", "pipeline.json")
+    m = _ERR_AGENT_RX.search(msg)
+    if m and m.group(1) in agent_ids:
+        return ("agents", f"agents/{m.group(1)}/")
+    return ("graph", "pipeline.json")
 
 
 def _detect_cycle(agents: list[dict]) -> list[str] | None:

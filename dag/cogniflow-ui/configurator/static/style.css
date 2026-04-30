@@ -63,21 +63,8 @@ body {
 .header-left { display: flex; align-items: center; gap: 8px; }
 .logo-mark   { font-size: 20px; color: #5BA3D9; }
 .logo-text   { font-weight: bold; font-size: 15px; letter-spacing: 1px; }
-.logo-sub    { font-size: 12px; color: rgba(255,255,255,0.6); margin-right: 12px; }
+.logo-sub    { font-size: 12px; color: rgba(255,255,255,0.6); }
 .header-right { display: flex; align-items: center; gap: 10px; }
-
-/* Header buttons — readable on the dark navy header bg. Scoped so we
-   don't affect .btn-ghost usage inside the main content area. */
-.app-header .btn-ghost,
-.app-header .header-nav-btn {
-  color: #FFFFFF;
-  border-color: rgba(255, 255, 255, 0.35);
-}
-.app-header .btn-ghost:hover,
-.app-header .header-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #FFFFFF;
-}
 .header-pipeline-name {
   font-weight: bold; font-size: 13px;
   max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

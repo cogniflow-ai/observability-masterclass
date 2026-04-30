@@ -1,126 +1,73 @@
-"""Tests for DAG layer resolution and cycle detection."""
+"""Tests for DAG loader and mode detection."""
 import pytest
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from orchestrator.dag import compute_layers_fallback
+from orchestrator.dag import build_dag, is_cyclic_pipeline
 from orchestrator.exceptions import CycleDetectedError
 
 
-def agents(*pairs):
-    """Helper: build agent list from (id, deps) tuples."""
-    return [{"id": a, "depends_on": list(d)} for a, d in pairs]
+def _spec(agents, edges=None):
+    out = {"agents": [{"id": a, "depends_on": []} for a in agents]}
+    if edges:
+        out["edges"] = edges
+    return out
 
 
-class TestComputeLayers:
-    def test_single_agent(self):
-        result = compute_layers_fallback(agents(("a", [])))
-        assert result == [["a"]]
-
-    def test_linear_chain(self):
-        result = compute_layers_fallback(agents(
-            ("a", []),
-            ("b", ["a"]),
-            ("c", ["b"]),
-        ))
-        assert result == [["a"], ["b"], ["c"]]
-
-    def test_parallel_root_agents(self):
-        result = compute_layers_fallback(agents(
-            ("a", []),
-            ("b", []),
-            ("c", []),
-        ))
-        assert result == [["a", "b", "c"]]
-
-    def test_fan_in(self):
-        result = compute_layers_fallback(agents(
-            ("r1", []),
-            ("r2", []),
-            ("r3", []),
-            ("syn", ["r1", "r2", "r3"]),
-        ))
-        assert result[0] == ["r1", "r2", "r3"]
-        assert result[1] == ["syn"]
-
-    def test_diamond(self):
-        """A → B, A → C, B+C → D."""
-        result = compute_layers_fallback(agents(
-            ("A", []),
-            ("B", ["A"]),
-            ("C", ["A"]),
-            ("D", ["B", "C"]),
-        ))
-        assert result[0] == ["A"]
-        assert set(result[1]) == {"B", "C"}
-        assert result[2] == ["D"]
-
-    def test_full_7_agent_pipeline(self):
-        result = compute_layers_fallback(agents(
-            ("001", []),
-            ("002", []),
-            ("003", []),
-            ("004", ["001", "002", "003"]),
-            ("005", ["004"]),
-            ("006", ["004"]),
-            ("007", ["005", "006"]),
-        ))
-        assert set(result[0]) == {"001", "002", "003"}
-        assert result[1] == ["004"]
-        assert set(result[2]) == {"005", "006"}
-        assert result[3] == ["007"]
-
-    def test_cycle_raises(self):
-        with pytest.raises(CycleDetectedError):
-            compute_layers_fallback(agents(
-                ("a", ["b"]),
-                ("b", ["a"]),
-            ))
-
-    def test_self_loop_raises(self):
-        with pytest.raises(CycleDetectedError):
-            compute_layers_fallback(agents(("a", ["a"])))
-
-    def test_longer_cycle_raises(self):
-        with pytest.raises(CycleDetectedError):
-            compute_layers_fallback(agents(
-                ("a", ["c"]),
-                ("b", ["a"]),
-                ("c", ["b"]),
-            ))
+def test_single_agent_no_deps():
+    spec = {"agents": [{"id": "a", "depends_on": []}]}
+    layers = build_dag(spec)
+    assert layers == [["a"]]
 
 
-class TestComputeLayersNetworkx:
-    """Same tests using the networkx path when available."""
-    def setup_method(self):
-        try:
-            import networkx  # noqa: F401
-            self.has_nx = True
-        except ImportError:
-            self.has_nx = False
+def test_linear_chain():
+    spec = {"agents": [
+        {"id": "a", "depends_on": []},
+        {"id": "b", "depends_on": ["a"]},
+        {"id": "c", "depends_on": ["b"]},
+    ]}
+    layers = build_dag(spec)
+    assert ["a"] in layers
+    assert ["b"] in layers
+    assert ["c"] in layers
+    a_idx = next(i for i, l in enumerate(layers) if "a" in l)
+    b_idx = next(i for i, l in enumerate(layers) if "b" in l)
+    c_idx = next(i for i, l in enumerate(layers) if "c" in l)
+    assert a_idx < b_idx < c_idx
 
-    def _run(self, agent_list):
-        if not self.has_nx:
-            pytest.skip("networkx not installed")
-        from orchestrator.dag import build_graph, compute_layers
-        g = build_graph(agent_list)
-        return compute_layers(g)
 
-    def test_fan_in_nx(self):
-        result = self._run(agents(
-            ("r1", []), ("r2", []), ("r3", []),
-            ("syn", ["r1", "r2", "r3"]),
-        ))
-        assert result[0] == ["r1", "r2", "r3"]
-        assert result[1] == ["syn"]
+def test_parallel_layer():
+    spec = {"agents": [
+        {"id": "root", "depends_on": []},
+        {"id": "left", "depends_on": ["root"]},
+        {"id": "right", "depends_on": ["root"]},
+        {"id": "sink", "depends_on": ["left", "right"]},
+    ]}
+    layers = build_dag(spec)
+    mid_layer = next(l for l in layers if "left" in l)
+    assert "right" in mid_layer
 
-    def test_cycle_nx(self):
-        if not self.has_nx:
-            pytest.skip("networkx not installed")
-        from orchestrator.dag import build_graph, assert_no_cycle
-        from orchestrator.exceptions import CycleDetectedError
-        g = build_graph(agents(("a", ["b"]), ("b", ["a"])))
-        with pytest.raises(CycleDetectedError):
-            assert_no_cycle(g)
+
+def test_cycle_raises():
+    spec = {"agents": [
+        {"id": "a", "depends_on": ["b"]},
+        {"id": "b", "depends_on": ["a"]},
+    ]}
+    with pytest.raises(CycleDetectedError):
+        build_dag(spec)
+
+
+def test_is_cyclic_false_for_dag():
+    spec = _spec(["a","b"], edges=[{"from":"a","to":"b","type":"task","directed":True}])
+    assert not is_cyclic_pipeline(spec)
+
+
+def test_is_cyclic_true_for_feedback():
+    spec = _spec(["a","b"], edges=[
+        {"from":"a","to":"b","type":"feedback","directed":False}
+    ])
+    assert is_cyclic_pipeline(spec)
+
+
+def test_is_cyclic_true_for_peer():
+    spec = _spec(["a","b"], edges=[
+        {"from":"a","to":"b","type":"peer","directed":False}
+    ])
+    assert is_cyclic_pipeline(spec)

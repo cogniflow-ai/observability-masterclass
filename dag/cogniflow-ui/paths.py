@@ -24,9 +24,6 @@ def is_frozen() -> bool:
 def bundle_dir() -> Path:
     """Read-only resource root."""
     if is_frozen():
-        # PyInstaller sets _MEIPASS for one-file builds; sys.executable's
-        # parent is correct for one-folder builds. _MEIPASS is the right
-        # answer for both, since one-folder also sets it.
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             return Path(meipass)

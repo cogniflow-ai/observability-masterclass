@@ -42,17 +42,29 @@ hiddenimports = [
     # when --cli-mode is passed. Without this, cli.py wouldn't be bundled
     # as an importable module.
     "cli",
-    # Orchestrator package + its modules.
+    # Orchestrator package + its modules (v3.5 surface area).
     "orchestrator",
     "orchestrator.agent",
+    "orchestrator.approval",
     "orchestrator.budget",
     "orchestrator.config",
     "orchestrator.context",
     "orchestrator.core",
+    "orchestrator.cyclic_agent",
+    "orchestrator.cyclic_engine",
     "orchestrator.dag",
+    "orchestrator.debug",
+    "orchestrator.event_writer",
     "orchestrator.events",
     "orchestrator.exceptions",
+    "orchestrator.hooks",
+    "orchestrator.mailbox",
+    "orchestrator.memory",
+    "orchestrator.retrieval",
+    "orchestrator.schema",
+    "orchestrator.secrets",
     "orchestrator.validate",
+    "orchestrator.vault",
     # Runtime deps that PyInstaller might miss in some edge cases.
     "networkx",
     "filelock",
@@ -111,7 +123,7 @@ app = BUNDLE(
     bundle_identifier="com.cogniflow.orchestrator",
     info_plist={
         "CFBundleDisplayName": "Cogniflow Orchestrator",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleShortVersionString": "1.1.0",
         "NSHighResolutionCapable": "True",
     },
 )

@@ -1,0 +1,18 @@
+<div class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-title">{{ title }}</div>
+    <button class="btn btn-sm"
+            onclick="document.getElementById('detail-container').innerHTML=''">
+      ✕ Close
+    </button>
+  </div>
+  {% if violations %}
+  <ul class="violation-list">
+    {% for v in violations %}
+      <li>{{ v }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">No violations recorded.</div>
+  {% endif %}
+</div>

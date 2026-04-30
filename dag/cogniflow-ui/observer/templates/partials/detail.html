@@ -17,8 +17,13 @@
             onclick="switchTab('system')">System Prompt</button>
     <button class="tab-btn" data-tab="prompt"
             onclick="switchTab('prompt')">Task Prompt</button>
+    <button class="tab-btn" data-tab="messages"
+            onclick="switchTab('messages')">Messages
+            {% if messages %}<span class="tab-badge">{{ messages | length }}</span>{% endif %}</button>
     <button class="tab-btn" data-tab="status"
             onclick="switchTab('status')">Status</button>
+    <button class="tab-btn" data-tab="config"
+            onclick="switchTab('config')">Config</button>
   </div>
 
   <!-- Output tab -->
@@ -47,6 +52,36 @@
     <pre class="content-pre" data-logical="02_prompt.md"><code>{{ prompt }}</code></pre>
   </div>
 
+  <!-- Messages tab -->
+  <div class="tab-content" id="tab-messages">
+    {% if not messages %}
+    <div class="empty-state">
+      No mailbox messages. DAG agents do not use the cyclic mailbox; cyclic
+      agents accumulate messages here as they exchange work.
+    </div>
+    {% else %}
+    <ul class="message-list">
+      {% for m in messages %}
+      {% set kind = m.kind | default('normal') %}
+      <li class="message-item kind-{{ kind }}">
+        <div class="message-head">
+          {% if kind == 'rejection_feedback' %}
+            <span class="msg-badge bad">Feedback from {{ m['from'] | default('?') }}</span>
+          {% elif kind == 'approval_feedback' or kind == 'approval_task' %}
+            <span class="msg-badge ok">Approval task from {{ m['from'] | default('?') }}</span>
+          {% else %}
+            <span class="msg-badge">{{ kind }}</span>
+          {% endif %}
+          <span class="msg-meta">{{ m['from'] | default('?') }} → {{ m['to'] | default(agent_id) }}</span>
+          <span class="msg-id" title="message_id">{{ m.message_id }}</span>
+        </div>
+        <pre class="msg-body"><code>{{ m.content | default('(empty)') }}</code></pre>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
   <!-- Status tab -->
   <div class="tab-content" id="tab-status">
     <pre class="content-pre" data-logical="06_status.json"><code>{{ status_raw }}</code></pre>
@@ -57,5 +92,38 @@
         <strong>No dependencies</strong> — runs in the first parallel layer.
       {% endif %}
     </div>
+  </div>
+
+  <!-- Config tab -->
+  <div class="tab-content" id="tab-config">
+    {% if agent_cfg %}
+    <dl class="agent-cfg">
+      {% if agent_cfg.requires_approval %}
+        <dt>Requires approval</dt><dd>yes</dd>
+      {% endif %}
+      {% if routes.on_reject %}
+        <dt>On reject →</dt>
+        <dd><code>{{ routes.on_reject.target }}</code>
+            (mode: {{ routes.on_reject.mode }};
+            include: {{ routes.on_reject.include | join(', ') }})</dd>
+      {% endif %}
+      {% if routes.on_approve %}
+        <dt>On approve →</dt>
+        <dd><code>{{ routes.on_approve.target }}</code>
+            (mode: {{ routes.on_approve.mode }};
+            include: {{ routes.on_approve.include | join(', ') }})</dd>
+      {% endif %}
+      {% if agent_cfg.input_schema %}
+        <dt>Declares input_schema</dt>
+        <dd><pre class="content-pre"><code>{{ agent_cfg.input_schema | tojson(indent=2) }}</code></pre></dd>
+      {% endif %}
+      {% if agent_cfg.output_schema %}
+        <dt>Declares output_schema</dt>
+        <dd><pre class="content-pre"><code>{{ agent_cfg.output_schema | tojson(indent=2) }}</code></pre></dd>
+      {% endif %}
+    </dl>
+    {% else %}
+    <div class="empty-state">No <code>00_config.json</code> for this agent.</div>
+    {% endif %}
   </div>
 </div>

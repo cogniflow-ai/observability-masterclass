@@ -2,28 +2,24 @@ from setuptools import setup, find_packages
 
 setup(
     name="cogniflow-orchestrator",
-    version="1.0.3",
-    description="File-based multi-agent DAG orchestrator for the Claude CLI",
-    author="Cogniflow AI",
-    author_email="giuseppe.basile@cogniflow-ai.com",
-    python_requires=">=3.10",
+    version="1.1.0",
+    description="Cogniflow Multi-Agent Orchestrator — DAG and cyclic graph pipelines via Claude CLI (GAP-1/2/3 restored, file-based config)",
     packages=find_packages(exclude=["tests*"]),
+    package_data={
+        "orchestrator": ["hook_scripts/*.py"],
+    },
+    python_requires=">=3.10",
     install_requires=[
         "networkx>=3.0",
         "filelock>=3.12",
     ],
     extras_require={
-        "dev": ["pytest>=7.0", "pytest-cov>=4.0"],
+        "dev":    ["pytest>=7.0", "pytest-cov>=4.0"],
+        "schema": ["jsonschema>=4.0"],
     },
     entry_points={
         "console_scripts": [
             "cogniflow=cli:main",
         ],
     },
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-    ],
 )

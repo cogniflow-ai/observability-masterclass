@@ -1,0 +1,35 @@
+{# Usage panel — referenced files in repo + recorded pipeline links from
+   the vault. Loaded into the modal body via fetch. #}
+
+<h4 class="panel-h">In source files</h4>
+{% if file_refs %}
+<ul class="vault-refs">
+  {% for f in file_refs %}
+  <li>
+    <code>{{ f.pipeline }}</code> /
+    <code>{{ f.agent }}</code> /
+    <code>{{ f.file }}</code>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">No <code>&lt;&lt;secret:{{ name }}&gt;&gt;</code> references in any pipeline's prompts.</p>
+{% endif %}
+
+<h4 class="panel-h">Recorded runtime usage</h4>
+{% if usage_rows %}
+<table class="data-table">
+  <thead><tr><th>Pipeline</th><th>First used</th><th>Last used</th></tr></thead>
+  <tbody>
+  {% for u in usage_rows %}
+  <tr>
+    <td><code>{{ u.pipeline_name }}</code></td>
+    <td><small>{{ u.first_used_at[:19].replace('T',' ') }}</small></td>
+    <td><small>{{ u.last_used_at[:19].replace('T',' ') }}</small></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No runtime usage recorded yet.</p>
+{% endif %}

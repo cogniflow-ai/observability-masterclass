@@ -1,20 +1,21 @@
 """
-Cogniflow UI — unified FastAPI app combining the Observer and the Configurator.
+Cogniflow UI v3.5 — unified FastAPI app combining the Observer and the
+Configurator.
 
 Layout:
-  - Observer routes mounted at root: "/", "/pipelines/{name}/...", "/pipelines/{name}/history/..."
-  - Configurator routes mounted at root: "/configurator", "/pipeline/{name}/...",
-    "/templates", "/prompt-templates"
+  - Observer routes mounted at root: "/", "/pipelines/{name}/...",
+    "/pipelines/{name}/history/...", "/observer/vault*"
+  - Configurator routes mounted alongside: "/configurator", "/pipeline/{name}/...",
+    "/templates", "/prompt-templates", "/vault*"
   - Static assets isolated per package: /static/observer/* and /static/configurator/*
   - On startup, bundled `seed_pipelines/` are overlaid onto the orchestrator's
     pipelines folder (see seeding.py).
 
-When running as a PyInstaller bundle, the user-editable `config.json` is read
-from beside the executable; bundled resources (templates, static, seed_pipelines)
-are read from the bundle (sys._MEIPASS).
+Note: the observer's vault viewer was relocated from `/vault*` to
+`/observer/vault*` to avoid colliding with the configurator's vault CRUD.
 
 Run from source:    uvicorn app:app --reload
-Run as exe:         double-click — see launch.py for the bundled entry point.
+Run as exe:         see launch.py for the bundled entry point.
 """
 from __future__ import annotations
 import json
@@ -52,7 +53,7 @@ def _load_top_config() -> dict:
 
 
 _cfg = _load_top_config()
-APP_TITLE = _cfg.get("app_title", "Cogniflow")
+APP_TITLE = _cfg.get("app_title", "Cogniflow UI")
 APP_VERSION = str(_cfg.get("app_version", "0.0.0"))
 HOST = _cfg.get("host", "127.0.0.1")
 PORT = int(_cfg.get("port", 8000))
@@ -77,9 +78,10 @@ def _resolve_orchestrator_root() -> Path | None:
 
 _orch_override = _resolve_orchestrator_root()
 if _orch_override is not None:
-    # Top-level config wins over both subpackage configs. This is how a
-    # student edits one file (next to the .exe) and both observer +
-    # configurator follow.
+    # Top-level config wins. The observer's settings model an
+    # orchestrator_root + pipelines_root pair; the configurator's settings
+    # store pipelines_root directly. Push both consistently so a single
+    # edit beside the exe reaches both subsystems.
     observer_settings.orchestrator_root = _orch_override
     observer_settings.pipelines_root = (_orch_override / "pipelines").resolve()
     configurator_settings.pipelines_root = (_orch_override / "pipelines").resolve()
@@ -88,7 +90,8 @@ if _orch_override is not None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: overlay bundled seed pipelines onto the orchestrator's
-    pipelines folder. Idempotent across same-version restarts."""
+    pipelines folder. Idempotent across same-version restarts. No-op if
+    seed_pipelines/ doesn't exist (e.g. running from source without seeds)."""
     seed_root = BUNDLE_DIR / "seed_pipelines"
     pipelines_root = observer_settings.pipelines_root
     result = seed_pipelines(
@@ -97,9 +100,9 @@ async def lifespan(app: FastAPI):
         app_version=APP_VERSION,
     )
     if result["skipped"]:
+        reason = result.get("reason", f"version={result['version_after']}")
         print(
-            f"[seed] skipped (version={result['version_after']}, "
-            f"target={pipelines_root})",
+            f"[seed] skipped ({reason}, target={pipelines_root})",
             flush=True,
         )
     else:
@@ -115,7 +118,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
 
 # Per-package static mounts — keeps the two `app.js` files from colliding.
-# Resolve directories from BUNDLE_DIR so frozen builds find them at _MEIPASS.
 app.mount(
     "/static/observer",
     StaticFiles(directory=str(BUNDLE_DIR / "observer" / "static")),
@@ -127,15 +129,34 @@ app.mount(
     name="static-configurator",
 )
 
-# Routers. URL paths don't collide:
-#   - Observer uses "/" and "/pipelines/..." (plural)
-#   - Configurator uses "/configurator", "/pipeline/..." (singular),
-#     "/templates", "/prompt-templates"
+# Routers. URL paths are disjoint:
+#   - Observer: "/", "/pipelines/..." (plural), "/observer/vault*"
+#   - Configurator: "/configurator", "/pipeline/..." (singular),
+#     "/templates", "/prompt-templates", "/vault*"
 app.include_router(observer_router)
 app.include_router(configurator_router)
 
 
 if __name__ == "__main__":
+    import threading
+    import time
+    import webbrowser
     import uvicorn
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    url = f"http://{HOST}:{PORT}"
+
+    def _open_browser_when_ready(delay_s: float = 1.5) -> None:
+        time.sleep(delay_s)
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as e:
+            print(f"[app] couldn't open browser automatically: {e}", flush=True)
+
+    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
+
     uvicorn.run("app:app", host=HOST, port=PORT, reload=True)
