@@ -72,7 +72,7 @@ pip install pytest pytest-cov
 ## Step 3 — Verify the installation
 
 ```bash
-python cli.py validate pipelines/ai_coding_2026
+python cli.py validate pipelines/07-newspaper-ai-article
 ```
 
 Expected output:
@@ -129,7 +129,7 @@ Get-Content .env | Where-Object { $_ -notmatch '^#' } | ForEach-Object {
 ## Step 5 — Run the sample pipeline
 
 ```bash
-python cli.py run pipelines/7-agent
+python cli.py run pipelines/07-newspaper-ai-article
 ```
 
 The pipeline will:
@@ -144,8 +144,10 @@ Outputs are written to `pipelines/7-agent/.state/agents/<agent_id>/05_output.md`
 To read the final article:
 
 ```bash
-python cli.py inspect pipelines/ai_coding_2026 --agent 007_editor --file output
+python cli.py inspect pipelines/07-newspaper-ai-article --agent 007_editor --file output
 ```
+
+
 
 ---
 
@@ -158,30 +160,69 @@ The `claude` binary is not in PATH. Set `CLAUDE_BIN` to the full path (see Step 
 Run `claude` interactively to complete login, then retry.
 
 ### Agent fails immediately (exit code 1, empty output)
-- Check the prompt files exist: `python cli.py inspect pipelines/ai_coding_2026 --agent 001_researcher_tools --file prompt`
+- Check the prompt files exist: `python cli.py inspect pipelines/07-newspaper-ai-article --agent 001_researcher_tools --file prompt`
 - Check Claude works standalone: `claude -p "hello"`
 - Check your subscription is active at claude.ai
+
+### Pipeline needs Reset
+If you see:
+
+```
+ Validating pipeline… ✓
+
+  Pipeline : Newspaper example for the state of AI tool in 2026
+  Agents   : 7
+
+── Layer 0 [parallel ×3]: 001_researcher_tools, 002_researcher_agentic, 003_researcher_enterprise
+  ⏭  001_researcher_tools — skipped (checkpoint)
+  ⏭  003_researcher_enterprise — skipped (checkpoint)
+  ⏭  002_researcher_agentic — skipped (checkpoint)
+
+── Layer 1 [sequential]: 004_synthesizer
+  ⏭  004_synthesizer — skipped (checkpoint)
+
+── Layer 2 [parallel ×2]: 005_writer, 006_fact_checker
+  ⏭  005_writer — skipped (checkpoint)
+  ⏭  006_fact_checker — skipped (checkpoint)
+
+── Layer 3 [sequential]: 007_editor
+  ⏭  007_editor — skipped (checkpoint)
+
+══════════════════════════════════════════════════
+  Done  ·  4 layers  ·  0s  ·  0 run, 7 skipped
+  Tokens · in 42 · out 21,347 · cache_read 104,549 · $0.8235  (7/7 agents reported)
+══════════════════════════════════════════════════
+```
+
+
+That means that the execution was skipped and the pipeline must be reset 
+
+Run:
+```bash
+python cli.py reset pipelines/07-newspaper-ai-article
+```
+
 
 ### Pipeline stalls / one agent hangs
 The default timeout is 300 seconds. Increase it for complex research tasks:
 ```bash
-python cli.py run pipelines/ai_coding_2026 --timeout 600
+python cli.py run pipelines/07-newspaper-ai-article --timeout 600
 ```
 
 ### Resume after interruption
 Re-run the same command. Completed agents are skipped automatically:
 ```bash
-python cli.py run pipelines/ai_coding_2026
+python cli.py run pipelines/07-newspaper-ai-article
 ```
 
 ### Reset and re-run from scratch
 ```bash
-python cli.py reset pipelines/ai_coding_2026
-python cli.py run   pipelines/ai_coding_2026
+python cli.py reset pipelines/07-newspaper-ai-article
+python cli.py run   pipelines/07-newspaper-ai-article
 ```
 
 ### Reset a single agent
 ```bash
-python cli.py reset pipelines/ai_coding_2026 --agent 004_synthesizer
-python cli.py run   pipelines/ai_coding_2026
+python cli.py reset pipelines/07-newspaper-ai-article --agent 004_synthesizer
+python cli.py run   pipelines/07-newspaper-ai-article
 ```

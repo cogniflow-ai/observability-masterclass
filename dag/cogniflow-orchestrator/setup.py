@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cogniflow-orchestrator",
-    version="1.0.3",
+    version="1.0.4",
     description="File-based multi-agent DAG orchestrator for the Claude CLI",
     author="Cogniflow AI",
     author_email="giuseppe.basile@cogniflow-ai.com",

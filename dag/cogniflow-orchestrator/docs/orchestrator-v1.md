@@ -1,4 +1,4 @@
-# Analysis: `cogniflow-orchestrator_v1.0`
+# Analysis: `cogniflow-orchestrator v1.0`
 
 A Python DAG orchestrator that runs Claude CLI calls as multi-agent pipelines. File-based communication; each agent is a directory of markdown/JSON artefacts.
 
@@ -18,7 +18,7 @@ orchestrator/
   config.py     env-driven (CLAUDE_BIN, AGENT_TIMEOUT, MODEL_CONTEXT_LIMIT...)
   exceptions.py typed hierarchy
 tests/          test_dag, test_validate, test_context
-pipelines/ai_coding_2026/  sample: 3 researchers -> synth -> writer+fact-check -> editor
+pipelines/07-newspaper-ai-article/  sample: 3 researchers -> synth -> writer+fact-check -> editor
 ```
 
 ## Execution model
